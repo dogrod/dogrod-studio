@@ -10,14 +10,20 @@ import { Badge } from "@/components/ui/badge";
 import { fetchAllTags, fetchPhotoDetail } from "@/lib/data/photos";
 
 interface PhotoPageProps {
-  params: {
+  params: Promise<{
     id: string;
-  };
+  }>;
 }
 
 export default async function PhotoDetailPage({ params }: PhotoPageProps) {
+  const { id } = await params;
+
+  if (!id) {
+    notFound();
+  }
+
   const [photo, allTags] = await Promise.all([
-    fetchPhotoDetail(params.id),
+    fetchPhotoDetail(id),
     fetchAllTags(),
   ]);
 
