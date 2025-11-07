@@ -1,36 +1,47 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+## dogrod Studio Admin
 
-## Getting Started
+Admin console for managing the dogrod Studio photo library. Authenticated administrators can upload originals to Cloudflare R2, generate renditions and histograms, edit metadata, and toggle public visibility.
 
-First, run the development server:
+## Prerequisites
+
+- Node.js 20+
+- pnpm (preferred) or npm/yarn/bun
+- Supabase project with email/password auth enabled
+- Cloudflare R2 bucket configured for S3-compatible API access
+
+## Environment configuration
+
+Create a `.env.local` file at the project root (Next.js automatically loads it). All variables are required for the app to boot. None of the Supabase credentials are exposed to the browser—authentication flows run through server actions. See sample values below and replace placeholders with your Supabase and Cloudflare credentials.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+# Supabase credentials (server-only)
+SUPABASE_URL="https://<project>.supabase.co"
+SUPABASE_ANON_KEY="public-anon-key"
+SUPABASE_SERVICE_ROLE_KEY="service-role-key"
+
+# Cloudflare R2 (S3-compatible) storage
+R2_ENDPOINT="https://<accountid>.r2.cloudflarestorage.com"
+R2_ACCESS_KEY_ID="r2-access-key"
+R2_SECRET_ACCESS_KEY="r2-secret"
+R2_BUCKET="dogrod-studio"
+R2_PUBLIC_BASE_URL="https://cdn.example.com"
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Restart the dev server after editing `.env.local`. If any variable is missing or malformed, the app raises a descriptive error summarising the issue.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Local development
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Install dependencies and start the dev server:
 
-## Learn More
+```bash
+pnpm install
+pnpm dev
+```
 
-To learn more about Next.js, take a look at the following resources:
+Open [http://localhost:3000/admin/login](http://localhost:3000/admin/login) and sign in with a Supabase Auth user. Once authenticated, you can browse the admin list, upload photos, and edit details.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Deployment notes
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Ensure the same environment variables are configured in your hosting platform.
+- The upload API route (`/api/admin/photos/upload`) must run in a Node.js runtime (not Edge) because it relies on `sharp`.
+- Cloudflare R2 objects are written with immutable keys (`photos/<uuid>/...`). Update logic should create new object keys to avoid stale caches.
