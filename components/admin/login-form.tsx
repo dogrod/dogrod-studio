@@ -10,6 +10,7 @@ import { z } from "zod";
 import {
   loginWithPasswordAction,
   sendMagicLinkAction,
+  sendPasswordResetAction,
 } from "@/app/admin/(auth)/actions";
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +41,7 @@ type MagicLinkSchema = z.infer<typeof magicLinkSchema>;
 export function LoginForm() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState<"password" | "magic">("password");
+  const [isResettingPassword, setIsResettingPassword] = useState(false);
 
   const passwordForm = useForm<PasswordSchema>({
     resolver: zodResolver(passwordSchema),
@@ -72,7 +74,7 @@ export function LoginForm() {
 
   const handleMagicLinkSubmit = magicForm.handleSubmit(async ({ email }) => {
     try {
-      const redirectTo = `${window.location.origin}/admin`;
+      const redirectTo = `${window.location.origin}/auth/callback?next=/admin`;
       await sendMagicLinkAction({ email, redirectTo });
 
       toast({
@@ -87,6 +89,36 @@ export function LoginForm() {
       });
     }
   });
+
+  const handleForgotPassword = async () => {
+    const email = passwordForm.getValues("email");
+    if (!email) {
+      toast({
+        title: "Email required",
+        description: "Please enter your email address first",
+      });
+      return;
+    }
+
+    setIsResettingPassword(true);
+    try {
+      const redirectTo = `${window.location.origin}/auth/callback?type=recovery`;
+      await sendPasswordResetAction({ email, redirectTo });
+
+      toast({
+        title: "Check your inbox",
+        description: "Password reset link sent successfully",
+      });
+    } catch (error) {
+      toast({
+        title: "Password reset failed",
+        description:
+          error instanceof Error ? error.message : "Unable to send reset link",
+      });
+    } finally {
+      setIsResettingPassword(false);
+    }
+  };
 
   return (
     <Tabs
@@ -148,6 +180,15 @@ export function LoginForm() {
               disabled={passwordForm.formState.isSubmitting}
             >
               {passwordForm.formState.isSubmitting ? "Signing in…" : "Sign in"}
+            </Button>
+            <Button
+              type="button"
+              variant="link"
+              className="w-full text-muted-foreground"
+              onClick={handleForgotPassword}
+              disabled={isResettingPassword}
+            >
+              {isResettingPassword ? "Sending…" : "Forgot password?"}
             </Button>
           </form>
         </Form>
