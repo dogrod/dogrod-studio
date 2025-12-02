@@ -12,6 +12,8 @@ const envSchema = z.object({
     .string()
     .url()
     .transform((value) => value.replace(/\/+$/, "")),
+  // Optional: enables reverse geocoding for photo locations
+  MAPBOX_ACCESS_TOKEN: z.string().optional(),
 });
 
 const globalForEnv = globalThis as typeof globalThis & {
@@ -31,6 +33,7 @@ export function getEnv(): Env {
       R2_SECRET_ACCESS_KEY: process.env.R2_SECRET_ACCESS_KEY,
       R2_BUCKET: process.env.R2_BUCKET,
       R2_PUBLIC_BASE_URL: process.env.R2_PUBLIC_BASE_URL,
+      MAPBOX_ACCESS_TOKEN: process.env.MAPBOX_ACCESS_TOKEN,
     });
 
     if (!envResult.success) {

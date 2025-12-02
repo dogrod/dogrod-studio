@@ -8,6 +8,7 @@ import sharp from 'sharp';
 import { invalidatePhotoYearCache } from '@/lib/data/photos';
 import { getR2Bucket, getR2Client, getR2PublicBaseUrl } from '@/lib/r2';
 import { createSupabaseServiceRoleClient } from '@/lib/supabase/server';
+import { enqueueGeocodeTask } from '@/lib/tasks/geocode-photo';
 import type { Photo } from '@/types/photos';
 
 type UploadContext = {
@@ -218,6 +219,11 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
     });
 
     await invalidatePhotoYearCache();
+
+    // Fire-and-forget: trigger background geocoding if coordinates exist
+    if (photoRecord.latitude != null && photoRecord.longitude != null) {
+      enqueueGeocodeTask(photoId, photoRecord.latitude, photoRecord.longitude, userId);
+    }
 
     return { photoId, detailUrl };
   } catch (error) {

@@ -25,6 +25,9 @@ R2_ACCESS_KEY_ID="r2-access-key"
 R2_SECRET_ACCESS_KEY="r2-secret"
 R2_BUCKET="dogrod-studio"
 R2_PUBLIC_BASE_URL="https://cdn.example.com"
+
+# Mapbox
+MAPBOX_ACCESS_TOKEN=pk.your_mapbox_token_here
 ```
 
 Restart the dev server after editing `.env.local`. If any variable is missing or malformed, the app raises a descriptive error summarising the issue.
