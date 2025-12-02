@@ -1,10 +1,11 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
+import Image from "next/image";
+import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
+import { CheckCircle2, ImagePlus, Loader2, UploadCloud, XCircle } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
 import { cn } from "@/lib/utils";
 
@@ -22,6 +23,8 @@ interface UploadItem {
   progress: number;
   error?: string;
   photoId?: string;
+  previewUrl?: string;
+  detailUrl?: string;
 }
 
 interface UploadResponse {
@@ -31,10 +34,13 @@ interface UploadResponse {
 
 export function UploadManager() {
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const dragCounterRef = useRef(0);
 
-  const handleSelectFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(event.target.files ?? []);
+  const hasUploads = uploads.length > 0;
+
+  const processFiles = (files: File[]) => {
     if (files.length === 0) return;
 
     const items = files.map<UploadItem>((file) => ({
@@ -44,11 +50,50 @@ export function UploadManager() {
       size: file.size,
       status: "idle",
       progress: 0,
+      previewUrl: URL.createObjectURL(file),
     }));
 
-    setUploads((prev) => [...prev, ...items]);
+    setUploads((prev) => [...items, ...prev]);
     void processQueue(items);
+  };
+
+  const handleSelectFiles = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files ?? []);
+    processFiles(files);
     event.target.value = "";
+  };
+
+  const handleDragEnter = (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragCounterRef.current += 1;
+    if (event.dataTransfer?.items?.length) {
+      setIsDragging(true);
+    }
+  };
+
+  const handleDragLeave = (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    dragCounterRef.current -= 1;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDragOver = (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setIsDragging(false);
+    dragCounterRef.current = 0;
+
+    const files = Array.from(event.dataTransfer?.files ?? []);
+    processFiles(files);
   };
 
   const processQueue = async (items: UploadItem[]) => {
@@ -82,9 +127,7 @@ export function UploadManager() {
       const response = await sendFile(item.file, (progress) => {
         setUploads((prev) =>
           prev.map((existing) =>
-            existing.id === item.id
-              ? { ...existing, progress }
-              : existing,
+            existing.id === item.id ? { ...existing, progress } : existing,
           ),
         );
       });
@@ -97,6 +140,7 @@ export function UploadManager() {
                 status: "success",
                 progress: 100,
                 photoId: response.photoId,
+                detailUrl: response.detailUrl,
               }
             : existing,
         ),
@@ -128,45 +172,218 @@ export function UploadManager() {
     }
   };
 
-  return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <UploadCloud className="h-5 w-5" /> Upload photos
-          </CardTitle>
-          <input
-            ref={inputRef}
-            type="file"
-            accept={ACCEPTED_TYPES.join(",")}
-            multiple
-            hidden
-            onChange={handleSelectFiles}
-          />
-          <Button onClick={() => inputRef.current?.click()} className="sm:w-auto">
-            Select files
-          </Button>
-        </CardHeader>
-        <CardContent className="space-y-3 text-sm text-muted-foreground">
-          <p>Supported formats: JPEG, PNG, WebP. Max size per file: 50 MB.</p>
-          <p>
-            Originals upload directly to Cloudflare R2. Renditions (thumb/list/detail) and histogram are processed server-side with sharp; EXIF metadata is extracted automatically.
-          </p>
-        </CardContent>
-      </Card>
+  const removeItem = (id: string) => {
+    setUploads((prev) => {
+      const item = prev.find((u) => u.id === id);
+      if (item?.previewUrl) {
+        URL.revokeObjectURL(item.previewUrl);
+      }
+      return prev.filter((u) => u.id !== id);
+    });
+  };
 
-      {uploads.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-base">Upload queue</CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
+  // Cleanup preview URLs on unmount
+  useEffect(() => {
+    return () => {
+      uploads.forEach((item) => {
+        if (item.previewUrl) {
+          URL.revokeObjectURL(item.previewUrl);
+        }
+      });
+    };
+  }, []);
+
+  return (
+    <div className="space-y-8">
+      {/* Drop Zone */}
+      <div
+        className={cn(
+          "relative rounded-xl border-2 border-dashed transition-all duration-200 cursor-pointer",
+          isDragging
+            ? "border-primary bg-primary/5 scale-[1.01]"
+            : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30",
+          hasUploads ? "py-12" : "py-20",
+        )}
+        onDragEnter={handleDragEnter}
+        onDragLeave={handleDragLeave}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onClick={() => inputRef.current?.click()}
+      >
+        <input
+          ref={inputRef}
+          type="file"
+          accept={ACCEPTED_TYPES.join(",")}
+          multiple
+          hidden
+          onChange={handleSelectFiles}
+        />
+
+        <div className="flex flex-col items-center justify-center gap-4 text-center px-4">
+          <div
+            className={cn(
+              "rounded-full p-4 transition-colors",
+              isDragging ? "bg-primary/10" : "bg-muted",
+            )}
+          >
+            <UploadCloud
+              className={cn(
+                "h-10 w-10 transition-colors",
+                isDragging ? "text-primary" : "text-muted-foreground",
+              )}
+            />
+          </div>
+
+          {isDragging ? (
+            <div className="space-y-1">
+              <p className="text-lg font-medium text-primary">
+                Drop your photos here
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-lg font-medium text-foreground">
+                Drag and drop your photos
+              </p>
+              <p className="text-sm text-muted-foreground">
+                or click to browse from your device
+              </p>
+              <p className="text-xs text-muted-foreground/70 pt-2">
+                JPEG, PNG, WebP up to 50MB each
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Upload Grid */}
+      {hasUploads && (
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">
+              Uploads ({uploads.length})
+            </h2>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => inputRef.current?.click()}
+            >
+              <ImagePlus className="h-4 w-4 mr-2" />
+              Add more
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
             {uploads.map((item) => (
-              <UploadRow key={item.id} item={item} />
+              <UploadTile key={item.id} item={item} onRemove={removeItem} />
             ))}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
       )}
+    </div>
+  );
+}
+
+function UploadTile({
+  item,
+  onRemove,
+}: {
+  item: UploadItem;
+  onRemove: (id: string) => void;
+}) {
+  const { id, name, status, progress, error, photoId, previewUrl, detailUrl } =
+    item;
+  const isLoading = status === "uploading" || status === "processing";
+  const isSuccess = status === "success";
+  const isError = status === "error";
+
+  const imageUrl = detailUrl || previewUrl;
+
+  return (
+    <div className="group relative aspect-square overflow-hidden rounded-lg bg-muted">
+      {/* Image Preview */}
+      {imageUrl && (
+        <Image
+          src={imageUrl}
+          alt={name}
+          fill
+          className={cn(
+            "object-cover transition-all duration-300",
+            isLoading && "opacity-50 blur-[1px]",
+          )}
+          sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
+          unoptimized={!detailUrl}
+        />
+      )}
+
+      {/* Loading Overlay */}
+      {isLoading && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[2px]">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+          <span className="mt-2 text-sm font-medium text-foreground">
+            {progress}%
+          </span>
+        </div>
+      )}
+
+      {/* Progress Bar */}
+      {isLoading && (
+        <div className="absolute bottom-0 left-0 right-0 h-1 bg-muted">
+          <div
+            className="h-full bg-primary transition-all duration-300"
+            style={{ width: `${progress}%` }}
+          />
+        </div>
+      )}
+
+      {/* Success Indicator */}
+      {isSuccess && (
+        <div className="absolute top-2 right-2">
+          <div className="rounded-full bg-emerald-500 p-1 shadow-lg">
+            <CheckCircle2 className="h-4 w-4 text-white" />
+          </div>
+        </div>
+      )}
+
+      {/* Error Overlay */}
+      {isError && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-destructive/90 p-3 text-center">
+          <XCircle className="h-8 w-8 text-white" />
+          <span className="mt-2 text-xs font-medium text-white line-clamp-2">
+            {error || "Upload failed"}
+          </span>
+        </div>
+      )}
+
+      {/* Hover Overlay */}
+      {(isSuccess || isError) && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 opacity-0 transition-opacity group-hover:opacity-100">
+          {isSuccess && photoId && (
+            <Link
+              href={`/admin/photo/${photoId}`}
+              className="text-sm font-medium text-primary hover:underline"
+              onClick={(e) => e.stopPropagation()}
+            >
+              View details
+            </Link>
+          )}
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onRemove(id);
+            }}
+            className="text-xs text-muted-foreground hover:text-destructive"
+          >
+            Remove
+          </button>
+        </div>
+      )}
+
+      {/* File Name Tooltip */}
+      <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-2 opacity-0 transition-opacity group-hover:opacity-100">
+        <p className="text-xs text-white truncate">{name}</p>
+      </div>
     </div>
   );
 }
@@ -181,7 +398,10 @@ function validateFile(file: File) {
   return null;
 }
 
-function sendFile(file: File, onProgress: (value: number) => void): Promise<UploadResponse> {
+function sendFile(
+  file: File,
+  onProgress: (value: number) => void,
+): Promise<UploadResponse> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/admin/photos/upload");
@@ -220,69 +440,4 @@ function sendFile(file: File, onProgress: (value: number) => void): Promise<Uplo
     formData.append("file", file, file.name);
     xhr.send(formData);
   });
-}
-
-function UploadRow({ item }: { item: UploadItem }) {
-  const { name, size, status, progress, error, photoId } = item;
-  const icon = getStatusIcon(status);
-
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex flex-col">
-          <span className="text-sm font-medium text-foreground">{name}</span>
-          <span className="text-xs text-muted-foreground">{formatFileSize(size)}</span>
-        </div>
-        <div className="flex items-center gap-2 text-xs">
-          {icon}
-          <span className="capitalize text-muted-foreground">{status}</span>
-        </div>
-      </div>
-
-      <div className="h-2 w-full overflow-hidden rounded bg-muted">
-        <div
-          className={cn(
-            "h-full transition-all",
-            status === "error" ? "bg-destructive" : "bg-primary",
-          )}
-          style={{ width: `${status === "error" ? 100 : progress}%` }}
-        />
-      </div>
-
-      {status === "error" && error && (
-        <p className="text-xs text-destructive">{error}</p>
-      )}
-
-      {status === "success" && photoId && (
-        <p className="text-xs text-emerald-600">
-          Photo ID: <span className="font-mono">{photoId}</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-function getStatusIcon(status: UploadStatus) {
-  switch (status) {
-    case "uploading":
-    case "processing":
-      return <Loader2 className="h-4 w-4 animate-spin text-primary" />;
-    case "success":
-      return <CheckCircle2 className="h-4 w-4 text-emerald-500" />;
-    case "error":
-      return <XCircle className="h-4 w-4 text-destructive" />;
-    default:
-      return null;
-  }
-}
-
-function formatFileSize(bytes: number) {
-  const units = ["B", "KB", "MB", "GB"];
-  let size = bytes;
-  let unitIndex = 0;
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-  return `${size.toFixed(size < 10 && unitIndex > 0 ? 1 : 0)} ${units[unitIndex]}`;
 }

@@ -89,6 +89,8 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
 
   const histogram = await computeHistogram(detailRendition.buffer);
 
+  const dominantColor = await computeDominantColor(detailRendition.buffer);
+
   const exif = await extractExif(originalBuffer);
 
   const { key: originalKey, url: originalUrl, checksum: originalChecksum } = await uploadOriginal(
@@ -116,8 +118,8 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
 
   const photoRecord: Partial<Photo> = {
     id: photoId,
-    title: null,
-    description: null,
+    title: deriveTitle(file.name),
+    description: exif?.description ?? null,
     captured_at: capturedAt,
     uploaded_at: now,
     asset_original_id: assetId,
@@ -131,7 +133,7 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
     country: null,
     latitude: exif?.latitude ?? null,
     longitude: exif?.longitude ?? null,
-    dominant_color: null,
+    dominant_color: dominantColor,
     blurhash: null,
     megapixels,
     dynamic_range_usage: dynamicRangeUsage,
@@ -419,6 +421,7 @@ async function extractExif(buffer: Buffer) {
       longitude: parsed.longitude ?? null,
       colorSpace: parsed.ColorSpace ? String(parsed.ColorSpace) : null,
       bitDepth: bitDepth,
+      description: parsed.ImageDescription ?? parsed.XPComment ?? null,
     };
   } catch (error) {
     console.warn('Failed to parse EXIF metadata', error);
@@ -429,6 +432,31 @@ async function extractExif(buffer: Buffer) {
 function deriveOrientation(width: number, height: number) {
   if (width === height) return 'square';
   return width > height ? 'landscape' : 'portrait';
+}
+
+/**
+ * Derives a clean title from a filename by removing extension and sanitizing.
+ */
+function deriveTitle(filename: string): string {
+  const baseName = path.basename(filename, path.extname(filename));
+  // Replace underscores/dashes with spaces, trim whitespace
+  return baseName.trim() || 'Untitled';
+}
+
+/**
+ * Converts RGB values to hex color string.
+ */
+function rgbToHex(r: number, g: number, b: number): string {
+  const toHex = (n: number) => Math.round(n).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * Computes the dominant color from an image buffer.
+ */
+async function computeDominantColor(buffer: Buffer): Promise<string> {
+  const { dominant } = await sharp(buffer).stats();
+  return rgbToHex(dominant.r, dominant.g, dominant.b);
 }
 
 function combineUrl(base: string, key: string) {

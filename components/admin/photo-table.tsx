@@ -1,5 +1,8 @@
+"use client";
+
 import Image from "next/image";
 import Link from "next/link";
+import { useState } from "react";
 import { format } from "date-fns";
 
 import { Badge } from "@/components/ui/badge";
@@ -13,13 +16,40 @@ import {
 } from "@/components/ui/table";
 import type { PhotoListItem } from "@/lib/data/photos";
 import { PhotoVisibilityToggle } from "@/components/admin/photo-visibility-toggle";
+import { PhotoLightbox } from "@/components/admin/photo-lightbox";
 import { cn } from "@/lib/utils";
 
 interface PhotoTableProps {
   photos: PhotoListItem[];
 }
 
+interface LightboxState {
+  open: boolean;
+  src: string | null;
+  title: string | null;
+}
+
 export function PhotoTable({ photos }: PhotoTableProps) {
+  const [lightbox, setLightbox] = useState<LightboxState>({
+    open: false,
+    src: null,
+    title: null,
+  });
+
+  const openLightbox = (photo: PhotoListItem) => {
+    const rendition = pickDetailRendition(photo);
+    if (rendition) {
+      setLightbox({
+        open: true,
+        src: rendition.url,
+        title: photo.title,
+      });
+    }
+  };
+
+  const closeLightbox = () => {
+    setLightbox((prev) => ({ ...prev, open: false }));
+  };
   if (photos.length === 0) {
     return (
       <div className="rounded-lg border border-dashed bg-muted/20 p-10 text-center text-sm text-muted-foreground">
@@ -29,6 +59,7 @@ export function PhotoTable({ photos }: PhotoTableProps) {
   }
 
   return (
+    <>
     <Table>
       <TableHeader>
         <TableRow>
@@ -50,7 +81,11 @@ export function PhotoTable({ photos }: PhotoTableProps) {
           return (
             <TableRow key={photo.id}>
               <TableCell>
-                <div className="relative h-16 w-20 overflow-hidden rounded-md bg-muted">
+                <button
+                  type="button"
+                  className="relative h-16 w-20 overflow-hidden rounded-md bg-muted cursor-pointer hover:ring-2 hover:ring-primary/50 transition-all"
+                  onClick={() => openLightbox(photo)}
+                >
                   {rendition ? (
                     <Image
                       src={rendition.url}
@@ -64,7 +99,7 @@ export function PhotoTable({ photos }: PhotoTableProps) {
                       No preview
                     </div>
                   )}
-                </div>
+                </button>
               </TableCell>
               <TableCell>
                 <div className="flex flex-col">
@@ -128,12 +163,25 @@ export function PhotoTable({ photos }: PhotoTableProps) {
         })}
       </TableBody>
     </Table>
+
+    <PhotoLightbox
+      open={lightbox.open}
+      onOpenChange={closeLightbox}
+      src={lightbox.src}
+      title={lightbox.title ?? undefined}
+    />
+  </>
   );
 }
 
 function pickRendition(photo: PhotoListItem) {
   const lookup = new Map(photo.renditions.map((r) => [r.variant_name, r]));
   return lookup.get("list") ?? lookup.get("thumb") ?? lookup.get("detail") ?? null;
+}
+
+function pickDetailRendition(photo: PhotoListItem) {
+  const lookup = new Map(photo.renditions.map((r) => [r.variant_name, r]));
+  return lookup.get("detail") ?? lookup.get("list") ?? null;
 }
 
 function buildLocation(photo: PhotoListItem) {

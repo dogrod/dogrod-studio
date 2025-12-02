@@ -1,10 +1,8 @@
 import { notFound } from "next/navigation";
-import Image from "next/image";
-import Link from "next/link";
-import { Calendar as CalendarIcon, Info, MapPin } from "lucide-react";
+import { Calendar as CalendarIcon, Info } from "lucide-react";
 
 import { PhotoDetailForm } from "@/components/admin/photo/photo-detail-form";
-import { PhotoInfoList } from "@/components/admin/photo/photo-info-list";
+import { PhotoPreviewCard } from "@/components/admin/photo/photo-preview-card";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fetchAllTags, fetchPhotoDetail } from "@/lib/data/photos";
@@ -33,45 +31,16 @@ export default async function PhotoDetailPage({ params }: PhotoPageProps) {
 
   const preview = selectPreview(photo);
 
+  const locationLabel = buildLocationLabel(photo);
+
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]">
       <div className="space-y-6">
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div className="space-y-1">
-              <CardTitle className="text-lg font-semibold">Preview</CardTitle>
-              <p className="flex items-center gap-2 text-sm text-muted-foreground">
-                <MapPin className="h-4 w-4" />
-                {buildLocationLabel(photo) || "Location unknown"}
-              </p>
-            </div>
-            <Link
-              href="/admin"
-              className="text-sm text-primary underline-offset-4 hover:underline"
-            >
-              Back to list
-            </Link>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-lg bg-muted">
-              {preview ? (
-                <Image
-                  src={preview.url}
-                  alt={photo.title ?? "Photo preview"}
-                  fill
-                  sizes="(max-width: 1024px) 100vw, 480px"
-                  className="object-cover"
-                  priority
-                />
-              ) : (
-                <div className="flex h-full w-full items-center justify-center text-sm text-muted-foreground">
-                  No preview available
-                </div>
-              )}
-            </div>
-            <PhotoInfoList photo={photo} preview={preview} />
-          </CardContent>
-        </Card>
+        <PhotoPreviewCard
+          photo={photo}
+          preview={preview}
+          locationLabel={locationLabel}
+        />
 
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
