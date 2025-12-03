@@ -1,5 +1,6 @@
 import { format } from "date-fns";
 
+import { formatAspectRatio } from "@/lib/utils";
 import type { PhotoDetail } from "@/types/photos";
 
 interface PhotoInfoListProps {
@@ -29,7 +30,7 @@ export function PhotoInfoList({ photo, preview }: PhotoInfoListProps) {
       </div>
       <div>
         <dt className="text-muted-foreground">Aspect ratio</dt>
-        <dd>{photo.aspect_ratio ?? "—"}</dd>
+        <dd>{formatAspectRatio(photo.aspect_ratio) ?? "—"}</dd>
       </div>
       <div>
         <dt className="text-muted-foreground">Megapixels</dt>
