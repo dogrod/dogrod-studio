@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import { encode as encodeBlurhash } from 'blurhash';
 import exifr from 'exifr';
 import sharp from 'sharp';
 
@@ -87,9 +88,16 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
     throw new Error('Failed to generate detail rendition.');
   }
 
+  const listRendition = renditions.find((r) => r.name === 'list');
+  if (!listRendition) {
+    throw new Error('Failed to generate list rendition.');
+  }
+
   const histogram = await computeHistogram(detailRendition.buffer);
 
   const dominantColor = await computeDominantColor(detailRendition.buffer);
+
+  const blurhash = await computeBlurhash(listRendition.buffer);
 
   const exif = await extractExif(originalBuffer);
 
@@ -134,7 +142,7 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
     latitude: exif?.latitude ?? null,
     longitude: exif?.longitude ?? null,
     dominant_color: dominantColor,
-    blurhash: null,
+    blurhash,
     megapixels,
     dynamic_range_usage: dynamicRangeUsage,
     is_visible: true,
@@ -480,4 +488,28 @@ function inferExtension(file: File) {
     default:
       return '.bin';
   }
+}
+
+/**
+ * Computes blurhash from an image buffer.
+ * Uses 4x3 components for a good balance of size and detail.
+ */
+async function computeBlurhash(buffer: Buffer): Promise<string> {
+  // Resize to a small size for faster encoding
+  const { data, info } = await sharp(buffer)
+    .resize(32, 32, { fit: 'inside' })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const componentX = 4;
+  const componentY = 3;
+
+  return encodeBlurhash(
+    new Uint8ClampedArray(data),
+    info.width,
+    info.height,
+    componentX,
+    componentY,
+  );
 }
