@@ -19,9 +19,10 @@ export default async function AdminPhotosPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const page = Math.max(1, Number.parseInt(searchParams.page ?? "1", 10) || 1);
-  const visibilityParam = parseVisibility(searchParams.visibility);
-  const yearParam = parseYear(searchParams.year);
+  const actualSearchParams = await searchParams;
+  const page = Math.max(1, Number.parseInt(actualSearchParams.page ?? "1", 10) || 1);
+  const visibilityParam = parseVisibility(actualSearchParams.visibility);
+  const yearParam = parseYear(actualSearchParams.year);
 
   let result = await fetchPhotoList({
     page,
