@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { AuthSessionMissingError } from "@supabase/supabase-js";
 
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
@@ -8,13 +9,17 @@ export async function getSession() {
     data: { user },
     error,
   } = await supabase.auth.getUser();
-  const session = user ? { user } : null;
 
+  // When no session exists, Supabase returns AuthSessionMissingError
+  // We should return null instead of throwing, allowing requireUser() to redirect
   if (error) {
+    if (error instanceof AuthSessionMissingError) {
+      return null;
+    }
     throw error;
   }
 
-  return session;
+  return user ? { user } : null;
 }
 
 export async function requireUser() {
