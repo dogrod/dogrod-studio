@@ -80,7 +80,7 @@ function parseVisibility(value: string | undefined) {
 }
 
 function parseYear(value: string | undefined) {
-  if (!value) return null;
+  if (!value) return undefined;
   const year = Number.parseInt(value, 10);
-  return Number.isFinite(year) ? year : null;
+  return Number.isFinite(year) ? year : undefined;
 }

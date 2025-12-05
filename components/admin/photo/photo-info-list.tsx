@@ -1,10 +1,10 @@
 import { format } from "date-fns";
 
 import { formatAspectRatio } from "@/lib/utils";
-import type { PhotoDetail } from "@/types/photos";
+import type { Photo } from "@/types/photos";
 
 interface PhotoInfoListProps {
-  photo: PhotoDetail;
+  photo: Photo;
   preview: { url: string; width: number | null; height: number | null; file_size: number | null } | null;
 }
 

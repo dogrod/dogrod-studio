@@ -168,7 +168,7 @@ export function PhotoDetailForm({ photo, allTags }: PhotoDetailFormProps) {
                       selected={field.value ?? undefined}
                       onSelect={(date) => field.onChange(date ?? null)}
                       initialFocus
-                      captionLayout="dropdown-buttons"
+                      captionLayout="dropdown"
                     />
                   </PopoverContent>
                 </Popover>

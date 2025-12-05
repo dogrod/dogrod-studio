@@ -17,7 +17,7 @@ type Visibility = "all" | "visible" | "hidden";
 
 interface PhotoFiltersProps {
   visibility: Visibility;
-  year: number | null;
+  year: number | null | undefined;
   availableYears: number[];
 }
 
@@ -42,7 +42,7 @@ export function PhotoFilters({ visibility, year, availableYears }: PhotoFiltersP
     applyFilter({ year: value === "all" ? null : value });
   };
 
-  const hasFilters = visibility !== "all" || year !== null;
+  const hasFilters = visibility !== "all" || year != null;
 
   const clearFilters = () => {
     applyFilter({ visibility: null, year: null });

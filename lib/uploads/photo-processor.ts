@@ -112,17 +112,17 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
   const supabase = createSupabaseServiceRoleClient();
   const now = new Date().toISOString();
 
-  const aspectRatio = Number((originalWidth / originalHeight).toFixed(4));
+  const aspectRatio = (originalWidth / originalHeight).toFixed(4);
   const orientation = deriveOrientation(originalWidth, originalHeight);
-  const megapixels = Number(((originalWidth * originalHeight) / 1_000_000).toFixed(2));
+  const megapixels = ((originalWidth * originalHeight) / 1_000_000).toFixed(2);
   const detailUrl = detailRendition.url;
 
   const capturedAt = exif?.capturedAt ?? null;
 
   const dynamicRangeUsage = Math.max(
     0,
-    Number((100 - histogram.highlightsPct - histogram.shadowsPct).toFixed(2)),
-  );
+    100 - histogram.highlightsPct - histogram.shadowsPct,
+  ).toFixed(2);
 
   const photoRecord: Partial<Photo> = {
     id: photoId,
@@ -169,15 +169,15 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
       updated_by: userId,
     });
 
-    cleanupTasks.push(() =>
-      supabase.from('assets').delete().eq('id', assetId),
-    );
+    cleanupTasks.push(async () => {
+      await supabase.from('assets').delete().eq('id', assetId);
+    });
 
     await supabase.from('photos').insert(photoRecord);
 
-    cleanupTasks.push(() =>
-      supabase.from('photos').delete().eq('id', photoId),
-    );
+    cleanupTasks.push(async () => {
+      await supabase.from('photos').delete().eq('id', photoId);
+    });
 
     await supabase.from('photo_rendition').insert(
       renditions.map((rendition) => ({

@@ -4,17 +4,6 @@ import { createClient } from "@supabase/supabase-js";
 
 import { getEnv } from "@/lib/env";
 
-type CookieOptions = {
-  expires?: Date;
-  maxAge?: number;
-  domain?: string;
-  path?: string;
-  sameSite?: "strict" | "lax" | "none";
-  secure?: boolean;
-  httpOnly?: boolean;
-  priority?: "low" | "medium" | "high";
-};
-
 const env = getEnv();
 
 export async function createSupabaseServerClient() {
@@ -22,21 +11,18 @@ export async function createSupabaseServerClient() {
 
   return createServerClient(env.SUPABASE_URL, env.SUPABASE_ANON_KEY, {
     cookies: {
-      get(name: string) {
-        return cookieStore.get(name)?.value;
+      getAll() {
+        return cookieStore.getAll();
       },
-      set(name: string, value: string, options?: CookieOptions) {
+      setAll(cookiesToSet) {
         try {
-          cookieStore.set({ name, value, ...options });
+          cookiesToSet.forEach(({ name, value, options }) =>
+            cookieStore.set(name, value, options)
+          );
         } catch {
-          // ignore if cookies() is read-only (e.g. during SSR render)
-        }
-      },
-      remove(name: string, options?: CookieOptions) {
-        try {
-          cookieStore.delete({ name, ...options });
-        } catch {
-          // ignore if cookies() is read-only
+          // The `setAll` method was called from a Server Component.
+          // This can be ignored if you have middleware refreshing
+          // user sessions.
         }
       },
     },
