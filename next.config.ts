@@ -27,6 +27,7 @@ const nextConfig: NextConfig = {
       bodySizeLimit: "100mb",
     },
   },
+  serverExternalPackages: ["sharp", "exifr"],
 };
 
 export default nextConfig;
