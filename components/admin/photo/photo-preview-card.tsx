@@ -27,7 +27,7 @@ export function PhotoPreviewCard({ photo, preview, locationLabel }: PhotoPreview
             <div className="flex items-center justify-between w-full">
               <CardTitle className="text-lg font-semibold">Preview</CardTitle>
               <Link
-                href="/admin"
+                href="/admin/gallery"
                 className="text-sm text-primary underline-offset-4 hover:underline shrink-0"
               >
                 Back to list

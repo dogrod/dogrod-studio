@@ -7,8 +7,8 @@ export default function UploadPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div className="space-y-1">
-          <Link href="/admin" className="text-sm text-primary hover:underline">
-            ← Back to photos
+          <Link href="/admin/gallery" className="text-sm text-primary hover:underline">
+            ← Back to gallery
           </Link>
           <h1 className="text-2xl font-semibold tracking-tight">Upload photos</h1>
         </div>

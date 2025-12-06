@@ -3,6 +3,7 @@ import { Calendar as CalendarIcon, Info } from "lucide-react";
 
 import { PhotoDetailForm } from "@/components/admin/photo/photo-detail-form";
 import { PhotoPreviewCard } from "@/components/admin/photo/photo-preview-card";
+import { PhotoProcessingStatus } from "@/components/admin/photo/photo-processing-status";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { fetchAllTags, fetchPhotoDetail } from "@/lib/data/photos";
@@ -37,6 +38,16 @@ export default async function PhotoDetailPage({ params }: PhotoPageProps) {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,3fr)_minmax(0,4fr)]">
       <div className="space-y-6">
+        {/* Processing Status Alert */}
+        <PhotoProcessingStatus
+          photoId={photo.id}
+          status={photo.status}
+          blurhash={photo.blurhash}
+          dominantColor={photo.dominant_color}
+          hasHistogram={!!photo.histogram}
+          hasRenditions={photo.renditions.length > 0}
+        />
+
         <PhotoPreviewCard
           photo={photo}
           preview={preview}

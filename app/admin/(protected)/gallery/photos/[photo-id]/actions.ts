@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth";
 import { getEnv } from "@/lib/env";
 import { reverseGeocode } from "@/lib/mapbox/geocoder";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { reprocessPhoto } from "@/lib/uploads/photo-processor";
 
 const updatePhotoSchema = z.object({
   photoId: z.string().uuid(),
@@ -27,6 +28,26 @@ export async function updatePhotoAction(input: UpdatePhotoInput) {
   const payload = updatePhotoSchema.parse(input);
   const user = await requireUser();
   const supabase = createSupabaseServiceRoleClient();
+
+  // Fetch current photo status to validate visibility changes
+  const { data: currentPhoto, error: fetchError } = await supabase
+    .from("photos")
+    .select("status, visibility")
+    .eq("id", payload.photoId)
+    .single();
+
+  if (fetchError || !currentPhoto) {
+    throw new Error("Photo not found");
+  }
+
+  // ⚠️ VISIBILITY CONSTRAINT:
+  // Photos that are not "published" cannot be made visible or have public visibility.
+  // This prevents incomplete/failed uploads from being exposed.
+  if (currentPhoto.status !== "published" && payload.isVisible) {
+    throw new Error(
+      "Cannot make photo visible while processing is incomplete. Please reprocess the photo first."
+    );
+  }
 
   const updatePayload = {
     title: payload.title,
@@ -147,5 +168,30 @@ export async function geocodePhotoAction(input: GeocodePhotoInput) {
   revalidatePath("/admin/gallery");
 
   return { success: true, location };
+}
+
+const reprocessPhotoSchema = z.object({
+  photoId: z.string().uuid(),
+});
+
+export type ReprocessPhotoInput = z.infer<typeof reprocessPhotoSchema>;
+
+/**
+ * Reprocess a photo that failed during initial processing.
+ * This re-runs the full processing pipeline (renditions, histogram, etc.)
+ */
+export async function reprocessPhotoAction(input: ReprocessPhotoInput) {
+  const payload = reprocessPhotoSchema.parse(input);
+  const user = await requireUser();
+
+  const result = await reprocessPhoto({
+    photoId: payload.photoId,
+    userId: user.id,
+  });
+
+  revalidatePath(`/admin/gallery/photos/${payload.photoId}`);
+  revalidatePath("/admin/gallery");
+
+  return { success: true, result };
 }
 
