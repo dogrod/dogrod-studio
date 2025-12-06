@@ -15,6 +15,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
+  icons: {
+    icon: "https://cdn.dogrod.com/favicon.ico",
+  },
   title: {
     default: "dogrod Studio Admin",
     template: "%s · dogrod Studio Admin",
