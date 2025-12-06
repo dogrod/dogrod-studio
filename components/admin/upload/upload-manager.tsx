@@ -1,9 +1,28 @@
 "use client";
 
+/**
+ * Upload Manager - Direct R2 Upload with Presigned URLs
+ *
+ * Upload Flow:
+ * 1. User selects/drops files
+ * 2. Client requests presigned URL from server (POST /api/admin/photos/upload/presign)
+ * 3. Client uploads directly to R2 using presigned URL (PUT)
+ * 4. Client notifies server upload is complete (POST /api/admin/photos/upload/complete)
+ * 5. Server processes the image and returns photo details
+ *
+ * This approach bypasses Vercel's 4.5MB body size limit for Hobby plan.
+ */
+
 import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { CheckCircle2, ImagePlus, Loader2, UploadCloud, XCircle } from "lucide-react";
+import {
+  CheckCircle2,
+  ImagePlus,
+  Loader2,
+  UploadCloud,
+  XCircle,
+} from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
@@ -12,7 +31,13 @@ import { cn } from "@/lib/utils";
 const ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/webp"];
 const MAX_SIZE_BYTES = 50 * 1024 * 1024;
 
-type UploadStatus = "idle" | "uploading" | "processing" | "success" | "error";
+type UploadStatus =
+  | "idle"
+  | "presigning"
+  | "uploading"
+  | "processing"
+  | "success"
+  | "error";
 
 interface UploadItem {
   id: string;
@@ -27,7 +52,15 @@ interface UploadItem {
   detailUrl?: string;
 }
 
-interface UploadResponse {
+interface PresignResponse {
+  uploadUrl: string;
+  storageId: string;
+  key: string;
+  publicBaseUrl: string;
+  expiresAt: string;
+}
+
+interface CompleteResponse {
   photoId: string;
   detailUrl: string;
 }
@@ -104,8 +137,8 @@ export function UploadManager() {
           prev.map((existing) =>
             existing.id === item.id
               ? { ...existing, status: "error", error: validationMessage }
-              : existing,
-          ),
+              : existing
+          )
         );
         continue;
       }
@@ -115,36 +148,74 @@ export function UploadManager() {
   };
 
   const uploadFile = async (item: UploadItem) => {
-    setUploads((prev) =>
-      prev.map((existing) =>
-        existing.id === item.id
-          ? { ...existing, status: "uploading", progress: 5 }
-          : existing,
-      ),
-    );
-
-    try {
-      const response = await sendFile(item.file, (progress) => {
-        setUploads((prev) =>
-          prev.map((existing) =>
-            existing.id === item.id ? { ...existing, progress } : existing,
-          ),
-        );
-      });
-
+    const updateStatus = (
+      updates: Partial<Pick<UploadItem, "status" | "progress" | "error" | "photoId" | "detailUrl">>
+    ) => {
       setUploads((prev) =>
         prev.map((existing) =>
-          existing.id === item.id
-            ? {
-                ...existing,
-                status: "success",
-                progress: 100,
-                photoId: response.photoId,
-                detailUrl: response.detailUrl,
-              }
-            : existing,
-        ),
+          existing.id === item.id ? { ...existing, ...updates } : existing
+        )
       );
+    };
+
+    try {
+      // Step 1: Get presigned URL
+      updateStatus({ status: "presigning", progress: 5 });
+
+      const presignResponse = await fetch("/api/admin/photos/upload/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: item.file.name,
+          contentType: item.file.type,
+          fileSize: item.file.size,
+        }),
+      });
+
+      if (!presignResponse.ok) {
+        const error = await presignResponse.json();
+        throw new Error(error.error ?? "Failed to get upload URL");
+      }
+
+      const presignData: PresignResponse = await presignResponse.json();
+
+      // Step 2: Upload directly to R2
+      updateStatus({ status: "uploading", progress: 10 });
+
+      await uploadToR2(item.file, presignData.uploadUrl, (progress) => {
+        // Map 0-100 to 10-70 range for the R2 upload phase
+        const mappedProgress = 10 + Math.round(progress * 0.6);
+        updateStatus({ progress: mappedProgress });
+      });
+
+      // Step 3: Notify server and process
+      updateStatus({ status: "processing", progress: 75 });
+
+      const completeResponse = await fetch("/api/admin/photos/upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          storageId: presignData.storageId,
+          key: presignData.key,
+          filename: item.file.name,
+          contentType: item.file.type,
+        }),
+      });
+
+      if (!completeResponse.ok) {
+        const error = await completeResponse.json();
+        throw new Error(error.error ?? "Failed to process upload");
+      }
+
+      const completeData: CompleteResponse = await completeResponse.json();
+
+      // Success
+      updateStatus({
+        status: "success",
+        progress: 100,
+        photoId: completeData.photoId,
+        detailUrl: completeData.detailUrl,
+      });
 
       toast({
         title: "Upload complete",
@@ -153,18 +224,11 @@ export function UploadManager() {
     } catch (error) {
       const message =
         error instanceof Error ? error.message : "Unexpected upload error";
-      setUploads((prev) =>
-        prev.map((existing) =>
-          existing.id === item.id
-            ? {
-                ...existing,
-                status: "error",
-                progress: 0,
-                error: message,
-              }
-            : existing,
-        ),
-      );
+      updateStatus({
+        status: "error",
+        progress: 0,
+        error: message,
+      });
       toast({
         title: "Upload failed",
         description: message,
@@ -202,7 +266,7 @@ export function UploadManager() {
           isDragging
             ? "border-primary bg-primary/5 scale-[1.01]"
             : "border-muted-foreground/25 hover:border-muted-foreground/50 hover:bg-muted/30",
-          hasUploads ? "py-12" : "py-20",
+          hasUploads ? "py-12" : "py-20"
         )}
         onDragEnter={handleDragEnter}
         onDragLeave={handleDragLeave}
@@ -223,13 +287,13 @@ export function UploadManager() {
           <div
             className={cn(
               "rounded-full p-4 transition-colors",
-              isDragging ? "bg-primary/10" : "bg-muted",
+              isDragging ? "bg-primary/10" : "bg-muted"
             )}
           >
             <UploadCloud
               className={cn(
                 "h-10 w-10 transition-colors",
-                isDragging ? "text-primary" : "text-muted-foreground",
+                isDragging ? "text-primary" : "text-muted-foreground"
               )}
             />
           </div>
@@ -293,11 +357,27 @@ function UploadTile({
 }) {
   const { id, name, status, progress, error, photoId, previewUrl, detailUrl } =
     item;
-  const isLoading = status === "uploading" || status === "processing";
+  const isLoading =
+    status === "presigning" ||
+    status === "uploading" ||
+    status === "processing";
   const isSuccess = status === "success";
   const isError = status === "error";
 
   const imageUrl = detailUrl || previewUrl;
+
+  const getStatusText = () => {
+    switch (status) {
+      case "presigning":
+        return "Preparing...";
+      case "uploading":
+        return "Uploading...";
+      case "processing":
+        return "Processing...";
+      default:
+        return `${progress}%`;
+    }
+  };
 
   return (
     <div className="group relative aspect-square overflow-hidden rounded-lg bg-muted">
@@ -309,7 +389,7 @@ function UploadTile({
           fill
           className={cn(
             "object-cover transition-all duration-300",
-            isLoading && "opacity-50 blur-[1px]",
+            isLoading && "opacity-50 blur-[1px]"
           )}
           sizes="(max-width: 640px) 50vw, (max-width: 768px) 33vw, (max-width: 1024px) 25vw, 20vw"
           unoptimized={!detailUrl}
@@ -321,7 +401,7 @@ function UploadTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/60 backdrop-blur-[2px]">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
           <span className="mt-2 text-sm font-medium text-foreground">
-            {progress}%
+            {getStatusText()}
           </span>
         </div>
       )}
@@ -398,46 +478,40 @@ function validateFile(file: File) {
   return null;
 }
 
-function sendFile(
+/**
+ * Upload file directly to R2 using presigned URL
+ */
+function uploadToR2(
   file: File,
-  onProgress: (value: number) => void,
-): Promise<UploadResponse> {
+  uploadUrl: string,
+  onProgress: (progress: number) => void
+): Promise<void> {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", "/api/admin/photos/upload");
+    xhr.open("PUT", uploadUrl);
+
+    // Set content type header
+    xhr.setRequestHeader("Content-Type", file.type);
 
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
-        const percent = Math.round((event.loaded / event.total) * 80);
-        onProgress(Math.min(80, Math.max(percent, 10)));
+        const percent = Math.round((event.loaded / event.total) * 100);
+        onProgress(percent);
       }
     };
 
-    xhr.onreadystatechange = () => {
-      if (xhr.readyState === XMLHttpRequest.DONE) {
-        const finish = () => {
-          try {
-            const payload = JSON.parse(xhr.responseText ?? "{}");
-            if (xhr.status >= 200 && xhr.status < 300) {
-              onProgress(100);
-              resolve(payload.result as UploadResponse);
-            } else {
-              reject(new Error(payload.error ?? "Upload failed"));
-            }
-          } catch {
-            reject(new Error("Failed to parse upload response"));
-          }
-        };
-        finish();
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        reject(new Error(`R2 upload failed with status ${xhr.status}`));
       }
     };
 
     xhr.onerror = () => {
-      reject(new Error("Network error during upload"));
+      reject(new Error("Network error during R2 upload"));
     };
 
-    const formData = new FormData();
-    formData.append("file", file, file.name);
-    xhr.send(formData);
+    xhr.send(file);
   });
 }

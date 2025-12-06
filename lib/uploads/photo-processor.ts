@@ -1,30 +1,109 @@
-import { createHash, randomUUID } from 'node:crypto';
-import path from 'node:path';
+/**
+ * Photo Processing Pipeline
+ *
+ * ⚠️ KNOWN LIMITATIONS & BOTTLENECKS:
+ *
+ * 1. MEMORY USAGE (Risk: Medium)
+ *    - Vercel Serverless: 1024MB (Hobby) / 3008MB (Pro)
+ *    - Worst case for 50MB image: ~300-500MB memory
+ *    - If OOM occurs: reduce MAX_FILE_SIZE or upgrade plan
+ *
+ * 2. EXECUTION TIME (Risk: Low-Medium)
+ *    - Vercel Serverless: 60s (Hobby) / 300s (Pro)
+ *    - Typical processing: 15-30s for large images
+ *    - If timeout: consider async processing with queue
+ *
+ * 3. R2 READ LATENCY (Risk: Low)
+ *    - Reading 50MB file: 2-5s typically
+ *    - Retry mechanism handles transient failures
+ *
+ * 4. SHARP PROCESSING (Risk: Low)
+ *    - CPU-bound, 5-15s for renditions generation
+ *    - Serial processing to minimize peak memory
+ *
+ * Processing Flow:
+ * Phase 1: Read original file from R2 (with retry)
+ * Phase 2: Extract metadata (EXIF, dimensions) - single pass
+ * Phase 3: Write basic data to database (assets, photos, photo_exif)
+ * Phase 4: Generate renditions serially (thumb -> list -> detail)
+ * Phase 5: Upload renditions to R2 (with retry)
+ * Phase 6: Compute derived data (histogram, blurhash, dominant color)
+ * Phase 7: Write derived data and update photo record
+ */
 
-import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { encode as encodeBlurhash } from 'blurhash';
-import exifr from 'exifr';
-import sharp from 'sharp';
+import { createHash, randomUUID } from "node:crypto";
+import path from "node:path";
 
-import { invalidatePhotoYearCache } from '@/lib/data/photos';
-import { getR2Bucket, getR2Client, getR2PublicBaseUrl } from '@/lib/r2';
-import { createSupabaseServiceRoleClient } from '@/lib/supabase/server';
-import { enqueueGeocodeTask } from '@/lib/tasks/geocode-photo';
-import type { Photo } from '@/types/photos';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  PutObjectCommand,
+} from "@aws-sdk/client-s3";
+import { encode as encodeBlurhash } from "blurhash";
+import exifr from "exifr";
+import sharp from "sharp";
 
-type UploadContext = {
-  file: File;
-  userId: string;
+import { withRetry } from "@/lib/async-retry";
+import { invalidatePhotoYearCache } from "@/lib/data/photos";
+import { getR2Bucket, getR2Client, getR2PublicBaseUrl } from "@/lib/r2";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { enqueueGeocodeTask } from "@/lib/tasks/geocode-photo";
+import type { Photo } from "@/types/photos";
+
+// ============================================================================
+// Configuration
+// ============================================================================
+
+/** Maximum retry attempts for each retriable operation */
+const MAX_RETRY_ATTEMPTS = 3;
+
+/** Retry configuration for R2 operations */
+const R2_RETRY_OPTIONS = {
+  maxAttempts: MAX_RETRY_ATTEMPTS,
+  baseDelayMs: 500,
+  maxDelayMs: 5000,
 };
 
 type RenditionConfig = {
-  name: 'thumb' | 'list' | 'detail';
+  name: "thumb" | "list" | "detail";
   maxSize: number;
   quality: number;
 };
 
-type GeneratedRendition = {
-  name: RenditionConfig['name'];
+/** Rendition configurations - processed serially to minimize memory usage */
+const RENDITIONS: RenditionConfig[] = [
+  { name: "thumb", maxSize: 320, quality: 80 },
+  { name: "list", maxSize: 1024, quality: 88 },
+  { name: "detail", maxSize: 2048, quality: 92 },
+];
+
+const CACHE_CONTROL = "public, max-age=31536000, immutable";
+const ACCEPTED_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+// ============================================================================
+// Types
+// ============================================================================
+
+export interface ProcessFromR2Context {
+  /** Storage ID (UUID) used as the folder name in R2 */
+  storageId: string;
+  /** R2 object key for the original file */
+  originalKey: string;
+  /** Original filename for title derivation */
+  originalFilename: string;
+  /** Content type of the original file */
+  contentType: string;
+  /** User ID for audit fields */
+  userId: string;
+}
+
+export interface ProcessedPhotoResult {
+  photoId: string;
+  detailUrl: string;
+}
+
+interface GeneratedRendition {
+  name: RenditionConfig["name"];
   buffer: Buffer;
   width: number;
   height: number;
@@ -32,19 +111,26 @@ type GeneratedRendition = {
   checksum: string;
   url: string;
   key: string;
-};
+}
 
-const RENDITIONS: RenditionConfig[] = [
-  { name: 'thumb', maxSize: 320, quality: 80 },
-  { name: 'list', maxSize: 1024, quality: 88 },
-  { name: 'detail', maxSize: 2048, quality: 92 },
-];
-
-const CACHE_CONTROL = 'public, max-age=31536000, immutable';
-const ACCEPTED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-export interface ProcessedPhotoResult {
-  photoId: string;
-  detailUrl: string;
+interface ExifData {
+  cameraMake: string | null;
+  cameraModel: string | null;
+  lensModel: string | null;
+  focalLength: number | null;
+  aperture: number | null;
+  shutterSpeed: number | null;
+  iso: number | null;
+  exposureCompensation: number | null;
+  meteringMode: string | null;
+  whiteBalance: string | null;
+  shootingMode: string | null;
+  capturedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  colorSpace: string | null;
+  bitDepth: number | null;
+  description: string | null;
 }
 
 interface HistogramResult {
@@ -56,77 +142,132 @@ interface HistogramResult {
   shadowsPct: number;
 }
 
-export async function processPhotoUpload({ file, userId }: UploadContext): Promise<ProcessedPhotoResult> {
-  const originalBuffer = Buffer.from(await file.arrayBuffer());
+// ============================================================================
+// Main Entry Point
+// ============================================================================
+
+/**
+ * Process a photo that has been uploaded directly to R2.
+ * This is the main entry point called after client completes direct upload.
+ *
+ * ⚠️ MEMORY WARNING: This function loads the entire original file into memory.
+ * For 50MB files, expect ~300-500MB peak memory usage during processing.
+ */
+export async function processPhotoFromR2(
+  context: ProcessFromR2Context
+): Promise<ProcessedPhotoResult> {
+  const { storageId, originalKey, originalFilename, contentType, userId } =
+    context;
+  const publicBase = getR2PublicBaseUrl();
+  const photoId = randomUUID();
+  const assetId = randomUUID();
+  const now = new Date().toISOString();
+
+  console.log("[photo-processor] Starting processing", {
+    storageId,
+    photoId,
+    originalKey,
+  });
+
+  // --------------------------------------------------------------------------
+  // Phase 1: Read original file from R2 (with retry)
+  // ⚠️ MEMORY: Loads entire file into memory
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 1: Reading original from R2");
+
+  const readResult = await withRetry(
+    () => readFileFromR2(originalKey),
+    {
+      ...R2_RETRY_OPTIONS,
+      operationName: "r2-read-original",
+      context: { storageId, originalKey },
+    }
+  );
+
+  if (!readResult.success) {
+    throw new Error(
+      `Failed to read original file from R2 after ${MAX_RETRY_ATTEMPTS} attempts: ${readResult.error.message}`
+    );
+  }
+
+  const originalBuffer = readResult.data;
   const originalSize = originalBuffer.length;
+
+  console.log("[photo-processor] Phase 1 complete", {
+    size: originalSize,
+    attempts: readResult.attempts,
+  });
+
+  // --------------------------------------------------------------------------
+  // Phase 2: Extract metadata (single pass through buffer)
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 2: Extracting metadata");
+
   const basePipeline = sharp(originalBuffer, { failOnError: false }).rotate();
   const metadata = await basePipeline.metadata();
 
   if (!metadata.width || !metadata.height) {
-    throw new Error('Unable to read image dimensions.');
+    await cleanupR2Object(originalKey);
+    throw new Error("Unable to read image dimensions.");
   }
 
-  const derivedType = metadata.format ? `image/${metadata.format}` : '';
-  const matchesType = file.type && ACCEPTED_TYPES.has(file.type);
+  const derivedType = metadata.format ? `image/${metadata.format}` : "";
+  const matchesType = contentType && ACCEPTED_TYPES.has(contentType);
   const matchesDerived = derivedType && ACCEPTED_TYPES.has(derivedType);
 
   if (!matchesType && !matchesDerived) {
-    throw new Error('Unsupported file type. Allowed: JPEG, PNG, WebP.');
+    await cleanupR2Object(originalKey);
+    throw new Error("Unsupported file type. Allowed: JPEG, PNG, WebP.");
   }
 
   const originalWidth = metadata.width;
   const originalHeight = metadata.height;
+  const originalChecksum = createHash("sha256").update(originalBuffer).digest("hex");
+  const originalUrl = combineUrl(publicBase, originalKey);
 
-  const photoId = randomUUID();
-  const assetId = randomUUID();
-  const storageId = photoId;
-
-  const renditions = await generateRenditions(originalBuffer, storageId);
-
-  const detailRendition = renditions.find((r) => r.name === 'detail');
-  if (!detailRendition) {
-    throw new Error('Failed to generate detail rendition.');
-  }
-
-  const listRendition = renditions.find((r) => r.name === 'list');
-  if (!listRendition) {
-    throw new Error('Failed to generate list rendition.');
-  }
-
-  const histogram = await computeHistogram(detailRendition.buffer);
-
-  const dominantColor = await computeDominantColor(detailRendition.buffer);
-
-  const blurhash = await computeBlurhash(listRendition.buffer);
-
+  // Extract EXIF - this is a single-pass operation
   const exif = await extractExif(originalBuffer);
 
-  const { key: originalKey, url: originalUrl, checksum: originalChecksum } = await uploadOriginal(
-    file,
-    originalBuffer,
-    storageId,
-  );
+  console.log("[photo-processor] Phase 2 complete", {
+    width: originalWidth,
+    height: originalHeight,
+    hasExif: !!exif,
+  });
 
-  await uploadRenditions(renditions);
+  // --------------------------------------------------------------------------
+  // Phase 3: Write basic data to database
+  // This happens early so we have a record even if later processing fails
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 3: Writing basic data to database");
 
   const supabase = createSupabaseServiceRoleClient();
-  const now = new Date().toISOString();
-
   const aspectRatio = (originalWidth / originalHeight).toFixed(4);
   const orientation = deriveOrientation(originalWidth, originalHeight);
   const megapixels = ((originalWidth * originalHeight) / 1_000_000).toFixed(2);
-  const detailUrl = detailRendition.url;
-
   const capturedAt = exif?.capturedAt ?? null;
 
-  const dynamicRangeUsage = Math.max(
-    0,
-    100 - histogram.highlightsPct - histogram.shadowsPct,
-  ).toFixed(2);
+  // Insert asset record
+  const { error: assetError } = await supabase.from("assets").insert({
+    id: assetId,
+    type: "image",
+    url: originalUrl,
+    width: originalWidth,
+    height: originalHeight,
+    file_size: originalSize,
+    checksum: originalChecksum,
+    created_by: userId,
+    updated_by: userId,
+  });
 
+  if (assetError) {
+    await cleanupR2Object(originalKey);
+    throw new Error(`Failed to insert asset: ${assetError.message}`);
+  }
+
+  // Insert photo record (without derived fields like blurhash, dominant_color)
   const photoRecord: Partial<Photo> = {
     id: photoId,
-    title: deriveTitle(file.name),
+    title: deriveTitle(originalFilename),
     description: exif?.description ?? null,
     captured_at: capturedAt,
     uploaded_at: now,
@@ -141,60 +282,30 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
     country: null,
     latitude: exif?.latitude ?? null,
     longitude: exif?.longitude ?? null,
-    dominant_color: dominantColor,
-    blurhash,
+    dominant_color: null, // Will be updated in Phase 7
+    blurhash: null, // Will be updated in Phase 7
     megapixels,
-    dynamic_range_usage: dynamicRangeUsage,
+    dynamic_range_usage: null, // Will be updated in Phase 7
     is_visible: true,
-    status: 'published',
-    visibility: 'public',
+    status: "draft", // Mark as draft until processing complete, then publish
+    visibility: "public",
     created_by: userId,
     created_at: now,
     updated_by: userId,
     updated_at: now,
   } as Photo;
 
-  const cleanupTasks: Array<() => Promise<void>> = [];
+  const { error: photoError } = await supabase.from("photos").insert(photoRecord);
 
-  try {
-    await supabase.from('assets').insert({
-      id: assetId,
-      type: 'image',
-      url: originalUrl,
-      width: originalWidth,
-      height: originalHeight,
-      file_size: originalSize,
-      checksum: originalChecksum,
-      created_by: userId,
-      updated_by: userId,
-    });
+  if (photoError) {
+    await supabase.from("assets").delete().eq("id", assetId);
+    await cleanupR2Object(originalKey);
+    throw new Error(`Failed to insert photo: ${photoError.message}`);
+  }
 
-    cleanupTasks.push(async () => {
-      await supabase.from('assets').delete().eq('id', assetId);
-    });
-
-    await supabase.from('photos').insert(photoRecord);
-
-    cleanupTasks.push(async () => {
-      await supabase.from('photos').delete().eq('id', photoId);
-    });
-
-    await supabase.from('photo_rendition').insert(
-      renditions.map((rendition) => ({
-        photo_id: photoId,
-        variant_name: rendition.name,
-        url: rendition.url,
-        width: rendition.width,
-        height: rendition.height,
-        file_size: rendition.fileSize,
-        checksum: rendition.checksum,
-        created_by: userId,
-        updated_by: userId,
-      })),
-    );
-
-    if (exif) {
-    await supabase.from('photo_exif').insert({
+  // Insert EXIF data if available
+  if (exif) {
+    const { error: exifError } = await supabase.from("photo_exif").insert({
       photo_id: photoId,
       camera_make: exif.cameraMake,
       camera_model: exif.cameraModel,
@@ -213,129 +324,241 @@ export async function processPhotoUpload({ file, userId }: UploadContext): Promi
       created_by: userId,
       updated_by: userId,
     });
+
+    if (exifError) {
+      console.warn("[photo-processor] Failed to insert EXIF, continuing", {
+        photoId,
+        error: exifError.message,
+      });
     }
-
-    await supabase.from('photo_histogram').insert({
-      photo_id: photoId,
-      bins: 256,
-      counts_luma: histogram.countsLuma,
-      counts_red: histogram.countsRed,
-      counts_green: histogram.countsGreen,
-      counts_blue: histogram.countsBlue,
-      highlights_pct: Number(histogram.highlightsPct.toFixed(2)),
-      shadows_pct: Number(histogram.shadowsPct.toFixed(2)),
-      created_by: userId,
-      updated_by: userId,
-    });
-
-    await invalidatePhotoYearCache();
-
-    // Fire-and-forget: trigger background geocoding if coordinates exist
-    if (photoRecord.latitude != null && photoRecord.longitude != null) {
-      enqueueGeocodeTask(photoId, photoRecord.latitude, photoRecord.longitude, userId);
-    }
-
-    return { photoId, detailUrl };
-  } catch (error) {
-    for (const cleanup of cleanupTasks.reverse()) {
-      try {
-        await cleanup();
-      } catch {
-        // ignore cleanup errors
-      }
-    }
-
-    await deleteR2Objects([originalKey, ...renditions.map((r) => r.key)]);
-
-    throw error;
   }
-}
 
-async function generateRenditions(originalBuffer: Buffer, storageId: string): Promise<GeneratedRendition[]> {
-  const outputs: GeneratedRendition[] = [];
-  const publicBase = getR2PublicBaseUrl();
+  console.log("[photo-processor] Phase 3 complete", { photoId, assetId });
+
+  // --------------------------------------------------------------------------
+  // Phase 4: Generate renditions serially
+  // ⚠️ MEMORY: Each rendition is generated one at a time to reduce peak memory
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 4: Generating renditions");
+
+  const renditions: GeneratedRendition[] = [];
 
   for (const config of RENDITIONS) {
-    const cloned = sharp(originalBuffer, { failOnError: false })
-      .rotate()
-      .toColorspace('srgb')
-      .resize({
-        width: config.maxSize,
-        height: config.maxSize,
-        fit: 'inside',
-        withoutEnlargement: true,
-      })
-      .jpeg({
-        quality: config.quality,
-        mozjpeg: true,
-      });
+    console.log(`[photo-processor] Generating ${config.name} rendition`);
+    const rendition = await generateSingleRendition(
+      originalBuffer,
+      storageId,
+      config,
+      publicBase
+    );
+    renditions.push(rendition);
+  }
 
-    const { data, info } = await cloned.toBuffer({ resolveWithObject: true });
-    const width = info.width ?? config.maxSize;
-    const height = info.height ?? config.maxSize;
-    const fileSize = info.size ?? data.length;
+  console.log("[photo-processor] Phase 4 complete", {
+    renditionCount: renditions.length,
+  });
 
-    const key = `photos/${storageId}/${config.name}.jpg`;
-    const url = combineUrl(publicBase, key);
-    const checksum = createHash('sha256').update(data).digest('hex');
+  // --------------------------------------------------------------------------
+  // Phase 5: Upload renditions to R2 (with retry for each)
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 5: Uploading renditions to R2");
 
-    outputs.push({
-      name: config.name,
-      buffer: data,
-      width,
-      height,
-      fileSize,
-      checksum,
-      url,
-      key,
+  for (const rendition of renditions) {
+    const uploadResult = await withRetry(
+      () => uploadRenditionToR2(rendition),
+      {
+        ...R2_RETRY_OPTIONS,
+        operationName: `r2-upload-${rendition.name}`,
+        context: { storageId, key: rendition.key },
+      }
+    );
+
+    if (!uploadResult.success) {
+      // Cleanup and fail
+      await cleanupPhotoRecords(supabase, photoId, assetId);
+      await deleteR2Objects([originalKey, ...renditions.map((r) => r.key)]);
+      throw new Error(
+        `Failed to upload ${rendition.name} rendition after ${MAX_RETRY_ATTEMPTS} attempts: ${uploadResult.error.message}`
+      );
+    }
+  }
+
+  // Insert rendition records
+  const { error: renditionError } = await supabase.from("photo_rendition").insert(
+    renditions.map((rendition) => ({
+      photo_id: photoId,
+      variant_name: rendition.name,
+      url: rendition.url,
+      width: rendition.width,
+      height: rendition.height,
+      file_size: rendition.fileSize,
+      checksum: rendition.checksum,
+      created_by: userId,
+      updated_by: userId,
+    }))
+  );
+
+  if (renditionError) {
+    console.warn("[photo-processor] Failed to insert renditions, continuing", {
+      photoId,
+      error: renditionError.message,
     });
   }
 
-  return outputs;
+  console.log("[photo-processor] Phase 5 complete");
+
+  // --------------------------------------------------------------------------
+  // Phase 6: Compute derived data (serial to minimize memory)
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 6: Computing derived data");
+
+  const detailRendition = renditions.find((r) => r.name === "detail");
+  const listRendition = renditions.find((r) => r.name === "list");
+
+  if (!detailRendition || !listRendition) {
+    throw new Error("Missing required renditions for derived data computation");
+  }
+
+  // Compute histogram from detail rendition
+  const histogram = await computeHistogram(detailRendition.buffer);
+
+  // Compute dominant color from detail rendition
+  const dominantColor = await computeDominantColor(detailRendition.buffer);
+
+  // Compute blurhash from list rendition (smaller = faster)
+  const blurhash = await computeBlurhash(listRendition.buffer);
+
+  const dynamicRangeUsage = Math.max(
+    0,
+    100 - histogram.highlightsPct - histogram.shadowsPct
+  ).toFixed(2);
+
+  console.log("[photo-processor] Phase 6 complete", {
+    dominantColor,
+    blurhashLength: blurhash.length,
+  });
+
+  // --------------------------------------------------------------------------
+  // Phase 7: Write derived data and finalize
+  // --------------------------------------------------------------------------
+  console.log("[photo-processor] Phase 7: Writing derived data");
+
+  // Insert histogram
+  const { error: histogramError } = await supabase.from("photo_histogram").insert({
+    photo_id: photoId,
+    bins: 256,
+    counts_luma: histogram.countsLuma,
+    counts_red: histogram.countsRed,
+    counts_green: histogram.countsGreen,
+    counts_blue: histogram.countsBlue,
+    highlights_pct: Number(histogram.highlightsPct.toFixed(2)),
+    shadows_pct: Number(histogram.shadowsPct.toFixed(2)),
+    created_by: userId,
+    updated_by: userId,
+  });
+
+  if (histogramError) {
+    console.warn("[photo-processor] Failed to insert histogram, continuing", {
+      photoId,
+      error: histogramError.message,
+    });
+  }
+
+  // Update photo with derived fields and mark as published
+  const { error: updateError } = await supabase
+    .from("photos")
+    .update({
+      dominant_color: dominantColor,
+      blurhash,
+      dynamic_range_usage: dynamicRangeUsage,
+      status: "published",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", photoId);
+
+  if (updateError) {
+    console.warn("[photo-processor] Failed to update photo status, continuing", {
+      photoId,
+      error: updateError.message,
+    });
+  }
+
+  // Invalidate cache
+  await invalidatePhotoYearCache();
+
+  // Fire-and-forget: trigger background geocoding if coordinates exist
+  if (exif?.latitude != null && exif?.longitude != null) {
+    enqueueGeocodeTask(photoId, exif.latitude, exif.longitude, userId);
+  }
+
+  console.log("[photo-processor] Processing complete", {
+    photoId,
+    detailUrl: detailRendition.url,
+  });
+
+  return { photoId, detailUrl: detailRendition.url };
 }
 
-async function uploadOriginal(file: File, buffer: Buffer, storageId: string) {
-  const bucket = getR2Bucket();
+// ============================================================================
+// R2 Operations
+// ============================================================================
+
+async function readFileFromR2(key: string): Promise<Buffer> {
   const client = getR2Client();
-  const baseUrl = getR2PublicBaseUrl();
-  const extension = inferExtension(file);
-  const key = `photos/${storageId}/original${extension}`;
-  const url = combineUrl(baseUrl, key);
-  const checksum = createHash('sha256').update(buffer).digest('hex');
+  const bucket = getR2Bucket();
+
+  const response = await client.send(
+    new GetObjectCommand({
+      Bucket: bucket,
+      Key: key,
+    })
+  );
+
+  if (!response.Body) {
+    throw new Error("Empty response body from R2");
+  }
+
+  // Convert stream to buffer
+  const chunks: Uint8Array[] = [];
+  for await (const chunk of response.Body as AsyncIterable<Uint8Array>) {
+    chunks.push(chunk);
+  }
+
+  return Buffer.concat(chunks);
+}
+
+async function uploadRenditionToR2(rendition: GeneratedRendition): Promise<void> {
+  const client = getR2Client();
+  const bucket = getR2Bucket();
 
   await client.send(
     new PutObjectCommand({
       Bucket: bucket,
-      Key: key,
-      Body: buffer,
-      ContentType: file.type,
+      Key: rendition.key,
+      Body: rendition.buffer,
+      ContentType: "image/jpeg",
       CacheControl: CACHE_CONTROL,
-    }),
-  );
-
-  return { key, url, checksum };
-}
-
-async function uploadRenditions(renditions: GeneratedRendition[]) {
-  const client = getR2Client();
-  const bucket = getR2Bucket();
-
-  await Promise.all(
-    renditions.map((rendition) =>
-      client.send(
-        new PutObjectCommand({
-          Bucket: bucket,
-          Key: rendition.key,
-          Body: rendition.buffer,
-          ContentType: 'image/jpeg',
-          CacheControl: CACHE_CONTROL,
-        }),
-      ),
-    ),
+    })
   );
 }
 
-async function deleteR2Objects(keys: string[]) {
+async function cleanupR2Object(key: string): Promise<void> {
+  try {
+    const client = getR2Client();
+    const bucket = getR2Bucket();
+
+    await client.send(
+      new DeleteObjectCommand({
+        Bucket: bucket,
+        Key: key,
+      })
+    );
+  } catch (error) {
+    console.warn("[photo-processor] Failed to cleanup R2 object", { key, error });
+  }
+}
+
+async function deleteR2Objects(keys: string[]): Promise<void> {
   const client = getR2Client();
   const bucket = getR2Bucket();
 
@@ -346,11 +569,80 @@ async function deleteR2Objects(keys: string[]) {
           new DeleteObjectCommand({
             Bucket: bucket,
             Key: key,
-          }),
+          })
         )
-        .catch(() => undefined),
-    ),
+        .catch(() => undefined)
+    )
   );
+}
+
+// ============================================================================
+// Database Cleanup
+// ============================================================================
+
+async function cleanupPhotoRecords(
+  supabase: ReturnType<typeof createSupabaseServiceRoleClient>,
+  photoId: string,
+  assetId: string
+): Promise<void> {
+  try {
+    await supabase.from("photo_histogram").delete().eq("photo_id", photoId);
+    await supabase.from("photo_rendition").delete().eq("photo_id", photoId);
+    await supabase.from("photo_exif").delete().eq("photo_id", photoId);
+    await supabase.from("photos").delete().eq("id", photoId);
+    await supabase.from("assets").delete().eq("id", assetId);
+  } catch (error) {
+    console.warn("[photo-processor] Failed to cleanup database records", {
+      photoId,
+      assetId,
+      error,
+    });
+  }
+}
+
+// ============================================================================
+// Image Processing
+// ============================================================================
+
+async function generateSingleRendition(
+  originalBuffer: Buffer,
+  storageId: string,
+  config: RenditionConfig,
+  publicBase: string
+): Promise<GeneratedRendition> {
+  const cloned = sharp(originalBuffer, { failOnError: false })
+    .rotate()
+    .toColorspace("srgb")
+    .resize({
+      width: config.maxSize,
+      height: config.maxSize,
+      fit: "inside",
+      withoutEnlargement: true,
+    })
+    .jpeg({
+      quality: config.quality,
+      mozjpeg: true,
+    });
+
+  const { data, info } = await cloned.toBuffer({ resolveWithObject: true });
+  const width = info.width ?? config.maxSize;
+  const height = info.height ?? config.maxSize;
+  const fileSize = info.size ?? data.length;
+
+  const key = `photos/${storageId}/${config.name}.jpg`;
+  const url = combineUrl(publicBase, key);
+  const checksum = createHash("sha256").update(data).digest("hex");
+
+  return {
+    name: config.name,
+    buffer: data,
+    width,
+    height,
+    fileSize,
+    checksum,
+    url,
+    key,
+  };
 }
 
 async function computeHistogram(buffer: Buffer): Promise<HistogramResult> {
@@ -367,7 +659,10 @@ async function computeHistogram(buffer: Buffer): Promise<HistogramResult> {
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    const luma = Math.max(0, Math.min(255, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b)));
+    const luma = Math.max(
+      0,
+      Math.min(255, Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b))
+    );
 
     countsRed[r] += 1;
     countsGreen[g] += 1;
@@ -395,7 +690,35 @@ async function computeHistogram(buffer: Buffer): Promise<HistogramResult> {
   };
 }
 
-async function extractExif(buffer: Buffer) {
+async function computeDominantColor(buffer: Buffer): Promise<string> {
+  const { dominant } = await sharp(buffer).stats();
+  return rgbToHex(dominant.r, dominant.g, dominant.b);
+}
+
+async function computeBlurhash(buffer: Buffer): Promise<string> {
+  const { data, info } = await sharp(buffer)
+    .resize(32, 32, { fit: "inside" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  const componentX = 4;
+  const componentY = 3;
+
+  return encodeBlurhash(
+    new Uint8ClampedArray(data),
+    info.width,
+    info.height,
+    componentX,
+    componentY
+  );
+}
+
+// ============================================================================
+// EXIF Extraction
+// ============================================================================
+
+async function extractExif(buffer: Buffer): Promise<ExifData | null> {
   try {
     const parsed = await exifr.parse(buffer, {
       tiff: true,
@@ -408,7 +731,7 @@ async function extractExif(buffer: Buffer) {
     const bitDepthRaw = parsed.BitsPerSample;
     const bitDepth = Array.isArray(bitDepthRaw)
       ? bitDepthRaw[0]
-      : typeof bitDepthRaw === 'number'
+      : typeof bitDepthRaw === "number"
         ? bitDepthRaw
         : null;
 
@@ -423,93 +746,44 @@ async function extractExif(buffer: Buffer) {
       exposureCompensation: parsed.ExposureCompensation ?? null,
       meteringMode: parsed.MeteringMode ? String(parsed.MeteringMode) : null,
       whiteBalance: parsed.WhiteBalance ? String(parsed.WhiteBalance) : null,
-      shootingMode: parsed.SceneCaptureType ? String(parsed.SceneCaptureType) : null,
-      capturedAt: parsed.DateTimeOriginal ? new Date(parsed.DateTimeOriginal).toISOString() : null,
+      shootingMode: parsed.SceneCaptureType
+        ? String(parsed.SceneCaptureType)
+        : null,
+      capturedAt: parsed.DateTimeOriginal
+        ? new Date(parsed.DateTimeOriginal).toISOString()
+        : null,
       latitude: parsed.latitude ?? null,
       longitude: parsed.longitude ?? null,
       colorSpace: parsed.ColorSpace ? String(parsed.ColorSpace) : null,
-      bitDepth: bitDepth,
+      bitDepth,
       description: parsed.ImageDescription ?? parsed.XPComment ?? null,
     };
   } catch (error) {
-    console.warn('Failed to parse EXIF metadata', error);
+    console.warn("[photo-processor] Failed to parse EXIF metadata", error);
     return null;
   }
 }
 
-function deriveOrientation(width: number, height: number) {
-  if (width === height) return 'square';
-  return width > height ? 'landscape' : 'portrait';
+// ============================================================================
+// Utilities
+// ============================================================================
+
+function deriveOrientation(width: number, height: number): string {
+  if (width === height) return "square";
+  return width > height ? "landscape" : "portrait";
 }
 
-/**
- * Derives a clean title from a filename by removing extension and sanitizing.
- */
 function deriveTitle(filename: string): string {
   const baseName = path.basename(filename, path.extname(filename));
-  // Replace underscores/dashes with spaces, trim whitespace
-  return baseName.trim() || 'Untitled';
+  return baseName.trim() || "Untitled";
 }
 
-/**
- * Converts RGB values to hex color string.
- */
 function rgbToHex(r: number, g: number, b: number): string {
-  const toHex = (n: number) => Math.round(n).toString(16).padStart(2, '0');
+  const toHex = (n: number) => Math.round(n).toString(16).padStart(2, "0");
   return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
 }
 
-/**
- * Computes the dominant color from an image buffer.
- */
-async function computeDominantColor(buffer: Buffer): Promise<string> {
-  const { dominant } = await sharp(buffer).stats();
-  return rgbToHex(dominant.r, dominant.g, dominant.b);
-}
-
-function combineUrl(base: string, key: string) {
-  const normalizedBase = base.endsWith('/') ? base : `${base}/`;
+function combineUrl(base: string, key: string): string {
+  const normalizedBase = base.endsWith("/") ? base : `${base}/`;
   return new URL(key, normalizedBase).toString();
-}
-
-function inferExtension(file: File) {
-  const extFromName = path.extname(file.name)?.toLowerCase();
-  if (extFromName) {
-    return extFromName;
-  }
-
-  switch (file.type) {
-    case 'image/jpeg':
-      return '.jpg';
-    case 'image/png':
-      return '.png';
-    case 'image/webp':
-      return '.webp';
-    default:
-      return '.bin';
-  }
-}
-
-/**
- * Computes blurhash from an image buffer.
- * Uses 4x3 components for a good balance of size and detail.
- */
-async function computeBlurhash(buffer: Buffer): Promise<string> {
-  // Resize to a small size for faster encoding
-  const { data, info } = await sharp(buffer)
-    .resize(32, 32, { fit: 'inside' })
-    .ensureAlpha()
-    .raw()
-    .toBuffer({ resolveWithObject: true });
-
-  const componentX = 4;
-  const componentY = 3;
-
-  return encodeBlurhash(
-    new Uint8ClampedArray(data),
-    info.width,
-    info.height,
-    componentX,
-    componentY,
-  );
 }
