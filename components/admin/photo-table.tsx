@@ -75,7 +75,6 @@ export function PhotoTable({ photos }: PhotoTableProps) {
       <TableBody>
         {photos.map((photo) => {
           const rendition = pickRendition(photo);
-          const date = photo.captured_at ?? photo.uploaded_at;
           const location = buildLocation(photo);
 
           return (
@@ -112,11 +111,21 @@ export function PhotoTable({ photos }: PhotoTableProps) {
                 </div>
               </TableCell>
               <TableCell>
-                <div className="flex flex-col">
-                  <span>{date ? format(new Date(date), "MMM d, yyyy") : "—"}</span>
-                  {photo.captured_at === null && (
-                    <span className="text-xs text-muted-foreground">Captured date unavailable</span>
-                  )}
+                <div className="flex flex-col gap-0.5">
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs text-muted-foreground">Taken:</span>
+                    <span className="text-sm">
+                      {photo.captured_at
+                        ? format(new Date(photo.captured_at), "MMM d, yyyy")
+                        : "—"}
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1.5">
+                    <span className="text-xs text-muted-foreground">Added:</span>
+                    <span className="text-sm text-muted-foreground">
+                      {format(new Date(photo.uploaded_at), "MMM d, yyyy")}
+                    </span>
+                  </div>
                 </div>
               </TableCell>
               <TableCell className="max-w-[160px]">
@@ -152,7 +161,7 @@ export function PhotoTable({ photos }: PhotoTableProps) {
               </TableCell>
               <TableCell className="text-right">
                 <Link
-                  href={`/admin/photo/${photo.id}`}
+                  href={`/admin/gallery/photos/${photo.id}`}
                   className="text-sm font-medium text-primary hover:underline"
                 >
                   View / Edit

@@ -9,12 +9,13 @@ import { fetchAllTags, fetchPhotoDetail } from "@/lib/data/photos";
 
 interface PhotoPageProps {
   params: Promise<{
-    id: string;
+    "photo-id": string;
   }>;
 }
 
 export default async function PhotoDetailPage({ params }: PhotoPageProps) {
-  const { id } = await params;
+  const resolvedParams = await params;
+  const id = resolvedParams["photo-id"];
 
   if (!id) {
     notFound();
@@ -160,3 +161,4 @@ function formatPercentage(value: number | string | null | undefined) {
   if (!Number.isFinite(numeric)) return "0.00%";
   return `${numeric.toFixed(2)}%`;
 }
+

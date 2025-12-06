@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Calendar as CalendarIcon } from "lucide-react";
+import { Calendar as CalendarIcon, MapPin } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 
-import { updatePhotoAction } from "@/app/admin/(protected)/photo/[id]/actions";
+import { geocodePhotoAction, updatePhotoAction } from "@/app/admin/(protected)/gallery/photos/[photo-id]/actions";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Form,
@@ -48,6 +48,17 @@ interface PhotoDetailFormProps {
 export function PhotoDetailForm({ photo, allTags }: PhotoDetailFormProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [isGeocoding, setIsGeocoding] = useState(false);
+
+  // Check if we can show the geocode button:
+  // - Has coordinates
+  // - All location fields are empty
+  const hasCoordinates = photo.latitude !== null && photo.longitude !== null;
+  const hasNoLocationInfo =
+    !photo.place_name && !photo.city && !photo.region && !photo.country;
+  const canGeocode = hasCoordinates && hasNoLocationInfo;
+
+  const isFormLocked = isPending || isGeocoding;
 
   const defaultValues: FormValues = useMemo(
     () => ({
@@ -106,10 +117,31 @@ export function PhotoDetailForm({ photo, allTags }: PhotoDetailFormProps) {
     });
   };
 
+  const handleGeocode = async () => {
+    setIsGeocoding(true);
+    try {
+      await geocodePhotoAction({ photoId: photo.id });
+      toast({
+        title: "Location generated",
+        description: "Location information has been filled from GPS coordinates.",
+      });
+      router.refresh();
+    } catch (error) {
+      console.error(error);
+      toast({
+        title: "Unable to generate location",
+        description:
+          error instanceof Error ? error.message : "An unexpected error occurred.",
+      });
+    } finally {
+      setIsGeocoding(false);
+    }
+  };
+
   return (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-        <fieldset className="space-y-6 rounded-lg border bg-card p-6">
+        <fieldset className="space-y-6 rounded-lg border bg-card p-6" disabled={isFormLocked}>
           <legend className="px-1 text-sm font-semibold uppercase text-muted-foreground">Details</legend>
 
           <FormField
@@ -228,6 +260,20 @@ export function PhotoDetailForm({ photo, allTags }: PhotoDetailFormProps) {
             />
           </div>
 
+          {canGeocode && (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-muted-foreground hover:text-foreground"
+              onClick={handleGeocode}
+              disabled={isGeocoding}
+            >
+              <MapPin className="h-4 w-4" />
+              {isGeocoding ? "Generating..." : "Generate Location Info"}
+            </Button>
+          )}
+
           <FormField
             control={form.control}
             name="isVisible"
@@ -281,7 +327,7 @@ export function PhotoDetailForm({ photo, allTags }: PhotoDetailFormProps) {
         </fieldset>
 
         <div className="flex items-center justify-end gap-3">
-          <Button type="submit" disabled={isPending}>
+          <Button type="submit" disabled={isFormLocked}>
             {isPending ? "Saving..." : "Save changes"}
           </Button>
         </div>

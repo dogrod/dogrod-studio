@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 
 import { requireUser } from "@/lib/auth";
+import { getEnv } from "@/lib/env";
+import { reverseGeocode } from "@/lib/mapbox/geocoder";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const updatePhotoSchema = z.object({
@@ -73,8 +75,77 @@ export async function updatePhotoAction(input: UpdatePhotoInput) {
     }
   }
 
-  revalidatePath(`/admin/photo/${payload.photoId}`);
-  revalidatePath("/admin");
+  revalidatePath(`/admin/gallery/photos/${payload.photoId}`);
+  revalidatePath("/admin/gallery");
 
   return { success: true };
 }
+
+const geocodePhotoSchema = z.object({
+  photoId: z.string().uuid(),
+});
+
+export type GeocodePhotoInput = z.infer<typeof geocodePhotoSchema>;
+
+export async function geocodePhotoAction(input: GeocodePhotoInput) {
+  const payload = geocodePhotoSchema.parse(input);
+  const user = await requireUser();
+  const supabase = createSupabaseServiceRoleClient();
+  const env = getEnv();
+
+  if (!env.MAPBOX_ACCESS_TOKEN) {
+    throw new Error("MapBox access token is not configured");
+  }
+
+  // Fetch photo's coordinates
+  const { data: photo, error: fetchError } = await supabase
+    .from("photos")
+    .select("latitude, longitude, place_name, city, region, country")
+    .eq("id", payload.photoId)
+    .single();
+
+  if (fetchError) {
+    throw fetchError;
+  }
+
+  if (!photo) {
+    throw new Error("Photo not found");
+  }
+
+  if (photo.latitude === null || photo.longitude === null) {
+    throw new Error("Photo does not have GPS coordinates");
+  }
+
+  // Call MapBox reverse geocoding
+  const location = await reverseGeocode(
+    photo.latitude,
+    photo.longitude,
+    env.MAPBOX_ACCESS_TOKEN,
+  );
+
+  if (!location) {
+    throw new Error("Could not determine location from coordinates");
+  }
+
+  // Update photo with location info
+  const { error: updateError } = await supabase
+    .from("photos")
+    .update({
+      place_name: location.placeName,
+      city: location.city,
+      region: location.region,
+      country: location.country,
+      updated_by: user.id,
+    })
+    .eq("id", payload.photoId);
+
+  if (updateError) {
+    throw updateError;
+  }
+
+  revalidatePath(`/admin/gallery/photos/${payload.photoId}`);
+  revalidatePath("/admin/gallery");
+
+  return { success: true, location };
+}
+

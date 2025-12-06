@@ -2,8 +2,17 @@
 
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useTransition } from "react";
+import { ArrowDownAZ, Check } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Select,
   SelectContent,
@@ -12,16 +21,24 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { mergeSearchParams } from "@/lib/navigation";
+import { cn } from "@/lib/utils";
 
 type Visibility = "all" | "visible" | "hidden";
+type SortBy = "added" | "taken";
 
 interface PhotoFiltersProps {
   visibility: Visibility;
   year: number | null | undefined;
   availableYears: number[];
+  sortBy: SortBy;
 }
 
-export function PhotoFilters({ visibility, year, availableYears }: PhotoFiltersProps) {
+const SORT_OPTIONS: { value: SortBy; label: string }[] = [
+  { value: "added", label: "Date added" },
+  { value: "taken", label: "Date taken" },
+];
+
+export function PhotoFilters({ visibility, year, availableYears, sortBy }: PhotoFiltersProps) {
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -42,11 +59,17 @@ export function PhotoFilters({ visibility, year, availableYears }: PhotoFiltersP
     applyFilter({ year: value === "all" ? null : value });
   };
 
+  const handleSortChange = (value: SortBy) => {
+    applyFilter({ sort: value === "added" ? null : value });
+  };
+
   const hasFilters = visibility !== "all" || year != null;
 
   const clearFilters = () => {
     applyFilter({ visibility: null, year: null });
   };
+
+  const currentSortLabel = SORT_OPTIONS.find((opt) => opt.value === sortBy)?.label ?? "Date added";
 
   return (
     <div className="flex flex-wrap items-center gap-4">
@@ -78,6 +101,34 @@ export function PhotoFilters({ visibility, year, availableYears }: PhotoFiltersP
           ))}
         </SelectContent>
       </Select>
+
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild disabled={isPending}>
+          <Button variant="outline" className="gap-2">
+            <ArrowDownAZ className="h-4 w-4" />
+            <span>{currentSortLabel}</span>
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuLabel>Sort by</DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          {SORT_OPTIONS.map((option) => (
+            <DropdownMenuItem
+              key={option.value}
+              onClick={() => handleSortChange(option.value)}
+              className="gap-2"
+            >
+              <Check
+                className={cn(
+                  "h-4 w-4",
+                  sortBy === option.value ? "opacity-100" : "opacity-0",
+                )}
+              />
+              {option.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       {hasFilters && (
         <Button

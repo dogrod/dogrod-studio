@@ -11,11 +11,13 @@ import type {
 } from "@/types/photos";
 
 export type PhotoListVisibilityFilter = "all" | "visible" | "hidden";
+export type PhotoListSortBy = "added" | "taken";
 
 export interface PhotoListFilters {
   page?: number;
   visibility?: PhotoListVisibilityFilter;
   year?: number;
+  sortBy?: PhotoListSortBy;
 }
 
 export interface PhotoListItem extends Photo {
@@ -37,6 +39,7 @@ export async function fetchPhotoList({
   page = 1,
   visibility = "all",
   year,
+  sortBy = "added",
 }: PhotoListFilters): Promise<PhotoListResponse> {
   const supabase = createSupabaseServiceRoleClient();
   const offset = (page - 1) * PHOTO_LIST_PAGE_SIZE;
@@ -46,10 +49,20 @@ export async function fetchPhotoList({
     .select(
       `*, photo_rendition(variant_name, url, width, height, file_size, checksum)`,
       { count: "exact" },
-    )
+    );
+
+  // Apply sorting based on sortBy parameter
+  if (sortBy === "taken") {
+    // Sort by capture date (date taken), with fallback to upload date for photos without capture date
+    query = query
     .order("captured_at", { ascending: false, nullsFirst: false })
-    .order("uploaded_at", { ascending: false })
-    .range(offset, offset + PHOTO_LIST_PAGE_SIZE - 1);
+      .order("uploaded_at", { ascending: false });
+  } else {
+    // Sort by upload date (date added) - default
+    query = query.order("uploaded_at", { ascending: false });
+  }
+
+  query = query.range(offset, offset + PHOTO_LIST_PAGE_SIZE - 1);
 
   if (visibility === "visible") {
     query = query.eq("is_visible", true);
