@@ -360,7 +360,7 @@ function UploadTile({
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-background/80 opacity-0 transition-opacity group-hover:opacity-100">
           {isSuccess && photoId && (
             <Link
-              href={`/admin/photo/${photoId}`}
+              href={`/admin/gallery/photos/${photoId}`}
               className="text-sm font-medium text-primary hover:underline"
               onClick={(e) => e.stopPropagation()}
             >
