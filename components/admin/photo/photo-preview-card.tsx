@@ -8,11 +8,11 @@ import { MapPin } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { PhotoInfoList } from "@/components/admin/photo/photo-info-list";
 import { PhotoLightbox } from "@/components/admin/photo-lightbox";
-import type { Photo, PhotoRendition } from "@/types/photos";
+import type { Photo, AssetRendition } from "@/types/photos";
 
 interface PhotoPreviewCardProps {
   photo: Photo;
-  preview: PhotoRendition | null;
+  preview: AssetRendition | null;
   locationLabel: string;
 }
 
