@@ -42,8 +42,8 @@ export default async function PhotoDetailPage({ params }: PhotoPageProps) {
         <PhotoProcessingStatus
           photoId={photo.id}
           status={photo.status}
-          blurhash={photo.blurhash}
-          dominantColor={photo.dominant_color}
+          blurhash={photo.assets?.blurhash ?? null}
+          dominantColor={photo.assets?.dominant_color ?? null}
           hasHistogram={!!photo.histogram}
           hasRenditions={photo.renditions.length > 0}
         />

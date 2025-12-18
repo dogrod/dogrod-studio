@@ -9,10 +9,37 @@ export interface Asset {
   height: number | null;
   file_size: number | null;
   checksum: string | null;
+  dominant_color: string | null;
+  blurhash: string | null;
   created_at: string;
   created_by: string | null;
   updated_at: string;
   updated_by: string | null;
+}
+
+export interface AssetRendition {
+  asset_id: string;
+  variant_name: "thumb" | "list" | "detail" | string;
+  url: string;
+  width: number | null;
+  height: number | null;
+  file_size: number | null;
+  checksum: string | null;
+  created_at: string;
+  created_by: string | null;
+  updated_at: string;
+  updated_by: string | null;
+}
+
+/**
+ * Asset with its visual metadata and renditions.
+ * Used when joining assets from photos.
+ */
+export interface AssetWithRenditions {
+  id: string;
+  dominant_color: string | null;
+  blurhash: string | null;
+  asset_rendition: AssetRendition[];
 }
 
 export interface Photo {
@@ -32,8 +59,6 @@ export interface Photo {
   country: string | null;
   latitude: number | null;
   longitude: number | null;
-  dominant_color: string | null;
-  blurhash: string | null;
   megapixels: string | null;
   dynamic_range_usage: string | null;
   is_visible: boolean;
@@ -45,19 +70,11 @@ export interface Photo {
   updated_at: string;
 }
 
-export interface PhotoRendition {
-  photo_id: string;
-  variant_name: "thumb" | "list" | "detail" | string;
-  url: string;
-  width: number | null;
-  height: number | null;
-  file_size: number | null;
-  checksum: string | null;
-  created_at: string;
-  created_by: string | null;
-  updated_at: string;
-  updated_by: string | null;
-}
+/**
+ * @deprecated Use AssetRendition instead. PhotoRendition has been replaced by AssetRendition
+ * as part of the Asset-centric architecture migration.
+ */
+export type PhotoRendition = AssetRendition;
 
 export interface PhotoExif {
   photo_id: string;
@@ -118,8 +135,9 @@ export interface PhotoTag {
 }
 
 export interface PhotoDetail extends Photo {
-  renditions: PhotoRendition[];
+  renditions: AssetRendition[];
   exif: PhotoExif | null;
   histogram: PhotoHistogram | null;
   tags: Tag[];
+  assets: AssetWithRenditions | null;
 }

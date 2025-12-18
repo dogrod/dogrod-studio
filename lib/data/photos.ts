@@ -6,7 +6,8 @@ import type {
   PhotoDetail,
   PhotoExif,
   PhotoHistogram,
-  PhotoRendition,
+  AssetRendition,
+  AssetWithRenditions,
   Tag,
 } from "@/types/photos";
 
@@ -21,7 +22,8 @@ export interface PhotoListFilters {
 }
 
 export interface PhotoListItem extends Photo {
-  renditions: PhotoRendition[];
+  renditions: AssetRendition[];
+  assets: AssetWithRenditions | null;
 }
 
 export interface PhotoListResponse {
@@ -47,7 +49,7 @@ export async function fetchPhotoList({
   let query = supabase
     .from("photos")
     .select(
-      `*, photo_rendition(variant_name, url, width, height, file_size, checksum)`,
+      `*, assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size, checksum))`,
       { count: "exact" },
     );
 
@@ -90,10 +92,11 @@ export async function fetchPhotoList({
 
   const availableYears = await fetchDistinctYears();
 
-  const items = (data as (Photo & { photo_rendition: PhotoRendition[] | null })[] | null)?.map(
+  const items = (data as (Photo & { assets: AssetWithRenditions | null })[] | null)?.map(
     (row) => ({
       ...row,
-      renditions: row.photo_rendition ?? [],
+      renditions: row.assets?.asset_rendition ?? [],
+      assets: row.assets ?? null,
     }),
   );
 
@@ -156,7 +159,7 @@ export async function fetchPhotoDetail(photoId: string): Promise<PhotoDetail | n
     .from("photos")
     .select(
       `*,
-      photo_rendition(variant_name, url, width, height, file_size, checksum),
+      assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size, checksum)),
       photo_exif(*),
       photo_histogram(*),
       photo_tag(tag_id, tags(id, name, slug, description, color))
@@ -174,7 +177,7 @@ export async function fetchPhotoDetail(photoId: string): Promise<PhotoDetail | n
   }
 
   const row = data as Photo & {
-    photo_rendition: PhotoRendition[] | null;
+    assets: AssetWithRenditions | null;
     photo_exif: PhotoExif | null;
     photo_histogram: PhotoHistogram | null;
     photo_tag:
@@ -191,10 +194,11 @@ export async function fetchPhotoDetail(photoId: string): Promise<PhotoDetail | n
 
   return {
     ...(row as Photo),
-    renditions: row.photo_rendition ?? [],
+    renditions: row.assets?.asset_rendition ?? [],
     exif: row.photo_exif,
     histogram: row.photo_histogram,
     tags,
+    assets: row.assets ?? null,
   };
 }
 

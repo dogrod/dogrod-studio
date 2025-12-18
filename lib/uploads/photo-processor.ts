@@ -264,7 +264,7 @@ export async function processPhotoFromR2(
     throw new Error(`Failed to insert asset: ${assetError.message}`);
   }
 
-  // Insert photo record (without derived fields like blurhash, dominant_color)
+  // Insert photo record (blurhash/dominant_color are now stored in assets table)
   const photoRecord: Partial<Photo> = {
     id: photoId,
     title: deriveTitle(originalFilename),
@@ -282,8 +282,6 @@ export async function processPhotoFromR2(
     country: null,
     latitude: exif?.latitude ?? null,
     longitude: exif?.longitude ?? null,
-    dominant_color: null, // Will be updated in Phase 7
-    blurhash: null, // Will be updated in Phase 7
     megapixels,
     dynamic_range_usage: null, // Will be updated in Phase 7
     is_visible: false, // Hidden until processing complete
@@ -383,10 +381,10 @@ export async function processPhotoFromR2(
     }
   }
 
-  // Insert rendition records
-  const { error: renditionError } = await supabase.from("photo_rendition").insert(
+  // Insert rendition records into asset_rendition table (keyed by asset_id)
+  const { error: renditionError } = await supabase.from("asset_rendition").insert(
     renditions.map((rendition) => ({
-      photo_id: photoId,
+      asset_id: assetId,
       variant_name: rendition.name,
       url: rendition.url,
       width: rendition.width,
@@ -401,6 +399,7 @@ export async function processPhotoFromR2(
   if (renditionError) {
     console.warn("[photo-processor] Failed to insert renditions, continuing", {
       photoId,
+      assetId,
       error: renditionError.message,
     });
   }
@@ -464,13 +463,28 @@ export async function processPhotoFromR2(
     });
   }
 
-  // Update photo with derived fields and mark as published
+  // Update asset with derived visual metadata (blurhash, dominant_color)
+  const { error: assetUpdateError } = await supabase
+    .from("assets")
+    .update({
+      dominant_color: dominantColor,
+      blurhash,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assetId);
+
+  if (assetUpdateError) {
+    console.warn("[photo-processor] Failed to update asset visual metadata, continuing", {
+      assetId,
+      error: assetUpdateError.message,
+    });
+  }
+
+  // Update photo status and mark as published
   // Only published photos can have public visibility
   const { error: updateError } = await supabase
     .from("photos")
     .update({
-      dominant_color: dominantColor,
-      blurhash,
       dynamic_range_usage: dynamicRangeUsage,
       status: "published",
       visibility: "public", // Now safe to make public since processing is complete
@@ -590,7 +604,7 @@ async function cleanupPhotoRecords(
 ): Promise<void> {
   try {
     await supabase.from("photo_histogram").delete().eq("photo_id", photoId);
-    await supabase.from("photo_rendition").delete().eq("photo_id", photoId);
+    await supabase.from("asset_rendition").delete().eq("asset_id", assetId);
     await supabase.from("photo_exif").delete().eq("photo_id", photoId);
     await supabase.from("photos").delete().eq("id", photoId);
     await supabase.from("assets").delete().eq("id", assetId);
@@ -816,8 +830,8 @@ export interface ReprocessPhotoResult {
  *
  * Use this when:
  * - Photo status is not "published"
- * - Derived fields (blurhash, dominant_color, histogram) are missing
- * - Renditions are missing or corrupted
+ * - Derived fields (blurhash, dominant_color on assets table, histogram) are missing
+ * - Asset renditions are missing or corrupted
  */
 export async function reprocessPhoto(
   context: ReprocessPhotoContext
@@ -899,11 +913,13 @@ export async function reprocessPhoto(
   // --------------------------------------------------------------------------
   console.log("[photo-processor] Reprocess Step 3: Cleaning up old data");
 
-  // Get existing rendition keys for R2 cleanup
+  const assetId = photo.assets.id as string;
+
+  // Get existing rendition keys for R2 cleanup from asset_rendition table
   const { data: existingRenditions } = await supabase
-    .from("photo_rendition")
+    .from("asset_rendition")
     .select("url")
-    .eq("photo_id", photoId);
+    .eq("asset_id", assetId);
 
   const existingRenditionKeys = (existingRenditions ?? [])
     .map((r) => r.url.replace(publicBase + "/", "").replace(publicBase, ""))
@@ -915,7 +931,7 @@ export async function reprocessPhoto(
   }
 
   // Delete from database
-  await supabase.from("photo_rendition").delete().eq("photo_id", photoId);
+  await supabase.from("asset_rendition").delete().eq("asset_id", assetId);
   await supabase.from("photo_histogram").delete().eq("photo_id", photoId);
 
   console.log("[photo-processor] Reprocess Step 3 complete", {
@@ -967,10 +983,10 @@ export async function reprocessPhoto(
     }
   }
 
-  // Insert rendition records
-  const { error: renditionError } = await supabase.from("photo_rendition").insert(
+  // Insert rendition records into asset_rendition table (keyed by asset_id)
+  const { error: renditionError } = await supabase.from("asset_rendition").insert(
     renditions.map((rendition) => ({
-      photo_id: photoId,
+      asset_id: assetId,
       variant_name: rendition.name,
       url: rendition.url,
       width: rendition.width,
@@ -985,6 +1001,7 @@ export async function reprocessPhoto(
   if (renditionError) {
     console.warn("[photo-processor] Failed to insert renditions, continuing", {
       photoId,
+      assetId,
       error: renditionError.message,
     });
   }
@@ -1048,12 +1065,27 @@ export async function reprocessPhoto(
     });
   }
 
-  // Update photo with derived fields and mark as published
-  const { error: updateError } = await supabase
-    .from("photos")
+  // Update asset with derived visual metadata (blurhash, dominant_color)
+  const { error: assetUpdateError } = await supabase
+    .from("assets")
     .update({
       dominant_color: dominantColor,
       blurhash,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", assetId);
+
+  if (assetUpdateError) {
+    console.warn("[photo-processor] Failed to update asset visual metadata, continuing", {
+      assetId,
+      error: assetUpdateError.message,
+    });
+  }
+
+  // Update photo status and mark as published
+  const { error: updateError } = await supabase
+    .from("photos")
+    .update({
       dynamic_range_usage: dynamicRangeUsage,
       status: "published",
       visibility: "public",
@@ -1085,17 +1117,19 @@ export async function reprocessPhoto(
  * Check if a photo needs reprocessing.
  * A photo needs reprocessing if:
  * - Status is not "published"
- * - OR blurhash/dominant_color/histogram are missing
+ * - OR blurhash/dominant_color/histogram are missing from the asset
  */
 export function needsReprocessing(photo: {
   status: string;
-  blurhash: string | null;
-  dominant_color: string | null;
+  assets?: {
+    blurhash: string | null;
+    dominant_color: string | null;
+  } | null;
 }): boolean {
   if (photo.status !== "published") {
     return true;
   }
-  if (!photo.blurhash || !photo.dominant_color) {
+  if (!photo.assets?.blurhash || !photo.assets?.dominant_color) {
     return true;
   }
   return false;

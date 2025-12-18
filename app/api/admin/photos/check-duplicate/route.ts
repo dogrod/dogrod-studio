@@ -63,10 +63,10 @@ export async function POST(request: Request) {
       .from("assets")
       .select(`
         id,
+        asset_rendition(variant_name, url),
         photos!inner(
           id,
-          title,
-          photo_rendition(variant_name, url)
+          title
         )
       `)
       .eq("checksum", checksum.toLowerCase())
@@ -92,11 +92,11 @@ export async function POST(request: Request) {
     const photos = asset.photos as Array<{
       id: string;
       title: string | null;
-      photo_rendition: Array<{ variant_name: string; url: string }> | null;
     }>;
 
+    const assetRenditions = asset.asset_rendition as Array<{ variant_name: string; url: string }> | null;
     const photo = photos[0];
-    const thumbRendition = photo?.photo_rendition?.find(
+    const thumbRendition = assetRenditions?.find(
       (r) => r.variant_name === "thumb"
     );
 
