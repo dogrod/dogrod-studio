@@ -390,7 +390,6 @@ export async function processPhotoFromR2(
       width: rendition.width,
       height: rendition.height,
       file_size: rendition.fileSize,
-      checksum: rendition.checksum,
       created_by: userId,
       updated_by: userId,
     }))
@@ -992,7 +991,6 @@ export async function reprocessPhoto(
       width: rendition.width,
       height: rendition.height,
       file_size: rendition.fileSize,
-      checksum: rendition.checksum,
       created_by: userId,
       updated_by: userId,
     }))

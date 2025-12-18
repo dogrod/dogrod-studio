@@ -49,7 +49,7 @@ export async function fetchPhotoList({
   let query = supabase
     .from("photos")
     .select(
-      `*, assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size, checksum))`,
+      `*, assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size))`,
       { count: "exact" },
     );
 
@@ -159,7 +159,7 @@ export async function fetchPhotoDetail(photoId: string): Promise<PhotoDetail | n
     .from("photos")
     .select(
       `*,
-      assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size, checksum)),
+      assets:asset_original_id(id, dominant_color, blurhash, asset_rendition(variant_name, url, width, height, file_size)),
       photo_exif(*),
       photo_histogram(*),
       photo_tag(tag_id, tags(id, name, slug, description, color))
