@@ -45,8 +45,8 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           "prose-pre:bg-muted prose-pre:font-mono",
           // Blockquotes
           "prose-blockquote:border-l-primary prose-blockquote:not-italic",
-          // Images
-          "prose-img:rounded-lg prose-img:shadow-md",
+          // Images - matches frontend styling
+          "prose-img:rounded-xl prose-img:shadow-md",
           // Lists
           "prose-li:marker:text-muted-foreground",
           // Padding for scroll area
