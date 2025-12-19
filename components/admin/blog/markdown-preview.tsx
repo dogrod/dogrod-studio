@@ -2,6 +2,8 @@
 
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { vscDarkPlus } from "react-syntax-highlighter/dist/esm/styles/prism";
 
 import { cn } from "@/lib/utils";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -46,9 +48,10 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           "prose-p:leading-relaxed",
           // Links
           "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
-          // Code
+          // Inline code styling (block code handled by SyntaxHighlighter)
           "prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:font-mono prose-code:text-sm",
-          "prose-pre:bg-muted prose-pre:font-mono",
+          // Pre blocks without syntax highlighting fallback
+          "prose-pre:bg-transparent prose-pre:p-0",
           // Blockquotes
           "prose-blockquote:border-l-primary prose-blockquote:not-italic",
           // Images - matches frontend styling
@@ -62,17 +65,61 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
-            // Custom pre/code handling to suppress hydration warnings on nested elements
-            pre: ({ children, ...props }) => (
-              <pre suppressHydrationWarning {...props}>
-                {children}
-              </pre>
-            ),
-            code: ({ children, ...props }) => (
-              <code suppressHydrationWarning {...props}>
-                {children}
-              </code>
-            ),
+            // Syntax highlighting for code blocks
+            code({ className, children, ...props }) {
+              // Check if this is a code block (has language class) or inline code
+              const match = /language-(\w+)/.exec(className || "");
+              const codeContent = String(children).replace(/\n$/, "");
+
+              // If it's a code block with a language specified
+              if (match) {
+                return (
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language={match[1]}
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: "0.5rem",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    {codeContent}
+                  </SyntaxHighlighter>
+                );
+              }
+
+              // Check if parent is a pre tag (code block without language)
+              // by checking if the code content has newlines
+              const isBlockCode = codeContent.includes("\n");
+              if (isBlockCode) {
+                return (
+                  <SyntaxHighlighter
+                    style={vscDarkPlus}
+                    language="text"
+                    PreTag="div"
+                    customStyle={{
+                      margin: 0,
+                      borderRadius: "0.5rem",
+                      fontSize: "0.875rem",
+                    }}
+                  >
+                    {codeContent}
+                  </SyntaxHighlighter>
+                );
+              }
+
+              // Inline code - render with default styling
+              return (
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              );
+            },
+            // Remove default pre handling since SyntaxHighlighter handles it
+            pre({ children }) {
+              return <>{children}</>;
+            },
             // Custom link handling to open in new tab
             a: ({ href, children, ...props }) => (
               <a
