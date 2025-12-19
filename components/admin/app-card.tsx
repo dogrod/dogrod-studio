@@ -2,18 +2,19 @@
 
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
-import { ExternalLink, Images, Settings, Users, FileText } from "lucide-react";
+import { ExternalLink, Images, Settings, Users, FileText, Tags } from "lucide-react";
 
 import { Card } from "@/components/ui/card";
 
 /** Available icon names for AppCard */
-export type AppIconName = "images" | "settings" | "users" | "file-text";
+export type AppIconName = "images" | "settings" | "users" | "file-text" | "tags";
 
 const iconMap = {
   images: Images,
   settings: Settings,
   users: Users,
   "file-text": FileText,
+  tags: Tags,
 } as const;
 
 type AppCardLink = {

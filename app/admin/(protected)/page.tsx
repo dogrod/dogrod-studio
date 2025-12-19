@@ -25,6 +25,11 @@ export default function AdminPage() {
             href="/admin/blog"
             externalLinks={[{ label: "Visit", url: "https://dogrod.com/blog" }]}
           />
+          <AppCard
+            title="Tags"
+            icon="tags"
+            href="/admin/tags"
+          />
         </div>
       </section>
     </div>
