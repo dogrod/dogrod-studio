@@ -62,3 +62,23 @@ export interface PhotoPickerItem {
   asset_original_id: string;
   renditions: AssetRendition[];
 }
+
+/**
+ * Supported languages in priority order (first = primary).
+ */
+export const SUPPORTED_LANGUAGES: PostLanguage[] = ["zh-CN", "en-US"];
+
+/**
+ * A group of posts sharing the same translation_group_id.
+ * Used for the "Matrix View" in the post list.
+ */
+export interface PostGroup {
+  /** The translation_group_id shared by all variants */
+  groupId: string;
+  /** The primary post to display (prefers zh-CN, fallback to first available) */
+  primaryPost: PostListItem;
+  /** Map of language variants */
+  variants: Partial<Record<PostLanguage, PostListItem>>;
+  /** Earliest created_at among all variants (for sorting) */
+  createdAt: string;
+}

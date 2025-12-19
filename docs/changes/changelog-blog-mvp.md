@@ -126,8 +126,21 @@ types/
 
 ## 4. UI/UX Decisions
 
-### Post List Page
-- Table columns: Thumbnail, Title, Status (Badge), Published Date, Actions
+### Post List Page (Grouped Matrix View) - Updated 2024-12-18
+- **View Model**: Posts are grouped by `translation_group_id` instead of flat list
+- **Row Entity**: Each row represents a `PostGroup` (all translations of one article)
+- **Table columns**:
+  - Cover thumbnail (from primary post)
+  - Title (from primary post, with fallback indicator if not zh-CN)
+  - Translations Matrix (language badges)
+  - Published Date
+  - Created Date
+- **Translations Matrix**:
+  - Shows badges for each supported language (ZH, EN)
+  - **Existing translation**: Solid colored badge (green=published, amber=draft)
+  - **Missing translation**: Dashed ghost badge with "+" icon, 50% opacity
+  - Click existing → Navigate to edit page
+  - Click missing → Create translation and redirect
 - Status filter dropdown: All, Draft, Published, Archived
 - Sort options: Created Date (default), Published Date, Title
 - "New Post" button in header
@@ -179,12 +192,41 @@ types/
 - `components/admin/blog/translations-sidebar.tsx` - Sidebar widget showing translation status and actions
 
 #### Updated Files
-- `types/posts.ts` - Added `PostLanguage`, `TranslationLink` types
+- `types/posts.ts` - Added `PostLanguage`, `TranslationLink`, `PostGroup`, `SUPPORTED_LANGUAGES`
 - `lib/data/posts.ts` - Added `fetchTranslations()`, `getExistingLanguages()`
 - `app/admin/(protected)/blog/[post-id]/actions.ts` - Added `createTranslationAction()`
 - `components/admin/blog/post-editor-form.tsx` - Added language selector, translation_group_id handling
-- `components/admin/blog/post-table.tsx` - Added language column
+- `components/admin/blog/post-table.tsx` - **Refactored to Grouped Matrix View**
 - `app/admin/(protected)/blog/[post-id]/page.tsx` - Added translations sidebar
+
+### Grouped Matrix View (Post List Refactor) - Added 2024-12-18
+
+The post list now uses a "Grouped Matrix View" instead of a flat list:
+
+#### Data Transformation
+```typescript
+interface PostGroup {
+  groupId: string;           // translation_group_id
+  primaryPost: PostListItem; // Prefer zh-CN, fallback to en-US
+  variants: Partial<Record<PostLanguage, PostListItem>>;
+  createdAt: string;         // Earliest created_at for sorting
+}
+```
+
+#### Implementation Details
+- `groupPostsByTranslation()` function transforms flat post list into groups
+- Uses `useMemo` for performance optimization
+- Groups sorted by `createdAt` descending (newest first)
+- Primary post selection: zh-CN > en-US > first available
+- Fallback indicator (amber icon) when primary is not zh-CN
+
+#### Language Matrix Badges
+| State | Appearance | Action |
+|-------|------------|--------|
+| Published | Green solid badge | Navigate to edit |
+| Draft | Amber solid badge | Navigate to edit |
+| Archived | Gray outline badge | Navigate to edit |
+| Missing | Dashed ghost badge (+) | Create translation |
 
 ### UX Flow
 1. **Creating a New Post**:
