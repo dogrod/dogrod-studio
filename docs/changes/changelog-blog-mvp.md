@@ -239,3 +239,60 @@ interface PostGroup {
    - "Add English" or "Add 中文" button creates new translation
    - Translation copies: `translation_group_id`, `cover_asset_id`, `gallery_photo_id`, tags
    - Redirects to new translation editor after creation
+
+---
+
+## 7. Editor Overhaul (Split-Pane) - Added 2024-12-18
+
+### New Components Created
+- `components/admin/blog/post-editor.tsx` - Complete editor replacement
+- `components/admin/blog/markdown-toolbar.tsx` - Formatting toolbar
+- `components/admin/blog/markdown-preview.tsx` - Live preview with prose styling
+
+### Dependencies Added
+- `react-markdown` - Markdown rendering
+- `remark-gfm` - GitHub Flavored Markdown support
+- `@tailwindcss/typography` - Prose styling classes
+
+### Layout Features
+
+#### Split-Pane Design (Desktop)
+- **Left Pane**: Markdown editor with toolbar
+- **Right Pane**: Live preview with typography styling
+- **Right Sidebar**: Settings panel (slug, excerpt, cover, status, tags)
+
+#### Mobile Experience
+- Tabs to switch between "Write" and "Preview"
+- Full-width editor/preview
+
+#### Zen Mode (Focus Mode)
+- Toggle button in header (Maximize/Minimize icons)
+- Hides navigation and sidebars
+- Editor expands to full viewport
+- Press again to exit
+
+### Markdown Toolbar
+Buttons for quick formatting:
+- **Bold** (Ctrl+B), **Italic** (Ctrl+I)
+- Heading 2, Heading 3
+- Link (Ctrl+K), Quote, Code
+- Bullet List, Numbered List
+- Horizontal Rule, Image
+
+### Preview Styling
+Uses Tailwind Typography with custom prose classes:
+```css
+prose prose-lg dark:prose-invert font-serif
+prose-headings:font-sans prose-headings:font-semibold
+prose-a:text-primary prose-a:no-underline
+prose-code:bg-muted prose-code:font-mono
+```
+
+### TagInput Integration
+- Replaced checkbox list with `TagInput` combobox
+- Multi-select pills with colors
+- "Magic Create" inline tag creation
+- Bound to `form.setValue('tagIds', ...)`
+
+### Files Removed
+- `components/admin/blog/post-editor-form.tsx` - Replaced by `post-editor.tsx`
