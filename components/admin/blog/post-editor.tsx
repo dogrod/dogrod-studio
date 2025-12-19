@@ -340,231 +340,231 @@ export function PostEditor({ post, allTags, translations = [] }: PostEditorProps
   };
 
   return (
-    <>
-      <Form {...form}>
-        <form
-          onSubmit={form.handleSubmit(onSubmit)}
-          className={cn(
-            "flex flex-col",
-            zenMode ? "fixed inset-0 z-50 bg-background" : "h-[calc(100vh-64px)]"
-          )}
-        >
-          {/* Editor Header */}
-          <div className="flex items-center justify-between border-b px-4 py-2">
-            <div className="flex items-center gap-2 min-w-0 flex-1">
-              {!zenMode && (
-                <Button variant="ghost" size="icon" asChild className="shrink-0">
-                  <Link href="/admin/blog">
-                    <ChevronLeft className="h-4 w-4" />
-                    <span className="sr-only">Back</span>
-                  </Link>
-                </Button>
+    <Form {...form}>
+      <form
+        onSubmit={form.handleSubmit(onSubmit)}
+        className={cn(
+          "flex flex-col",
+          zenMode ? "fixed inset-0 z-50 bg-background" : "h-[calc(100vh-64px)]"
+        )}
+      >
+        {/* Editor Header */}
+        <div className="flex items-center justify-between border-b px-4 py-2">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            {!zenMode && (
+              <Button variant="ghost" size="icon" asChild className="shrink-0">
+                <Link href="/admin/blog">
+                  <ChevronLeft className="h-4 w-4" />
+                  <span className="sr-only">Back</span>
+                </Link>
+              </Button>
+            )}
+            <FormField
+              control={form.control}
+              name="title"
+              render={({ field }) => (
+                <Input
+                  {...field}
+                  placeholder="Post title..."
+                  className="flex-1 border-0 bg-transparent text-lg font-semibold shadow-none focus-visible:ring-0"
+                  onBlur={() => {
+                    field.onBlur();
+                    handleTitleBlur();
+                  }}
+                  disabled={isFormLocked}
+                />
               )}
+            />
+            {!isNewPost && post?.language && (
+              <Badge variant="outline" className="shrink-0">
+                {LANGUAGE_LABELS[post.language]}
+              </Badge>
+            )}
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setZenMode(!zenMode)}
+              title={zenMode ? "Exit focus mode" : "Focus mode"}
+            >
+              {zenMode ? (
+                <Minimize2 className="h-4 w-4" />
+              ) : (
+                <Maximize2 className="h-4 w-4" />
+              )}
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              onClick={() => setShowSettings(true)}
+              title="Post settings"
+            >
+              <Settings className="h-4 w-4" />
+            </Button>
+            {!isNewPost && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => setShowDeleteDialog(true)}
+                disabled={isFormLocked}
+                title="Delete post"
+                className="text-destructive hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            )}
+            <Button type="submit" disabled={isFormLocked} size="sm" className="ml-2">
+              {isPending ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Main Editor Area - Full Width Split */}
+        <div className="flex flex-1 overflow-hidden">
+          {/* Mobile Tabs */}
+          <div className="flex flex-1 flex-col lg:hidden">
+            <Tabs
+              value={mobileTab}
+              onValueChange={(v) => setMobileTab(v as "write" | "preview")}
+              className="flex flex-1 flex-col"
+            >
+              <TabsList className="w-full rounded-none border-b">
+                <TabsTrigger value="write" className="flex-1">
+                  <Edit3 className="mr-2 h-4 w-4" />
+                  Write
+                </TabsTrigger>
+                <TabsTrigger value="preview" className="flex-1">
+                  <Eye className="mr-2 h-4 w-4" />
+                  Preview
+                </TabsTrigger>
+              </TabsList>
+              <TabsContent value="write" className="flex-1 mt-0 data-[state=inactive]:hidden">
+                <div className="flex h-full flex-col">
+                  <MarkdownToolbar
+                    textareaRef={textareaRef}
+                    onInsert={handleInsert}
+                    onWrap={handleWrap}
+                    disabled={isFormLocked}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="content"
+                    render={({ field }) => (
+                      <Textarea
+                        {...field}
+                        ref={textareaRef}
+                        value={field.value ?? ""}
+                        placeholder="Write your story..."
+                        className="flex-1 resize-none rounded-none border-0 font-mono text-base leading-relaxed shadow-none focus-visible:ring-0 p-4"
+                        disabled={isFormLocked}
+                      />
+                    )}
+                  />
+                </div>
+              </TabsContent>
+              <TabsContent value="preview" className="flex-1 mt-0 data-[state=inactive]:hidden">
+                <MarkdownPreview content={watchedContent ?? ""} className="h-full" />
+              </TabsContent>
+            </Tabs>
+          </div>
+
+          {/* Desktop Split View - Full Width */}
+          <div className="hidden flex-1 lg:grid lg:grid-cols-2">
+            {/* Write Pane */}
+            <div className="flex flex-col border-r overflow-hidden">
+              <MarkdownToolbar
+                textareaRef={textareaRef}
+                onInsert={handleInsert}
+                onWrap={handleWrap}
+                disabled={isFormLocked}
+              />
               <FormField
                 control={form.control}
-                name="title"
+                name="content"
                 render={({ field }) => (
-                  <Input
+                  <Textarea
                     {...field}
-                    placeholder="Post title..."
-                    className="flex-1 border-0 bg-transparent text-lg font-semibold shadow-none focus-visible:ring-0"
-                    onBlur={() => {
-                      field.onBlur();
-                      handleTitleBlur();
-                    }}
+                    ref={textareaRef}
+                    value={field.value ?? ""}
+                    placeholder="Write your story..."
+                    className="flex-1 resize-none rounded-none border-0 font-mono text-base leading-relaxed shadow-none focus-visible:ring-0 p-4"
                     disabled={isFormLocked}
                   />
                 )}
               />
-              {!isNewPost && post?.language && (
-                <Badge variant="outline" className="shrink-0">
-                  {LANGUAGE_LABELS[post.language]}
-                </Badge>
-              )}
-            </div>
-            <div className="flex items-center gap-1 shrink-0">
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setZenMode(!zenMode)}
-                title={zenMode ? "Exit focus mode" : "Focus mode"}
-              >
-                {zenMode ? (
-                  <Minimize2 className="h-4 w-4" />
-                ) : (
-                  <Maximize2 className="h-4 w-4" />
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowSettings(true)}
-                title="Post settings"
-              >
-                <Settings className="h-4 w-4" />
-              </Button>
-              {!isNewPost && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowDeleteDialog(true)}
-                  disabled={isFormLocked}
-                  title="Delete post"
-                  className="text-destructive hover:text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              )}
-              <Button type="submit" disabled={isFormLocked} size="sm" className="ml-2">
-                {isPending ? "Saving..." : "Save"}
-              </Button>
-            </div>
-          </div>
-
-          {/* Main Editor Area - Full Width Split */}
-          <div className="flex flex-1 overflow-hidden">
-            {/* Mobile Tabs */}
-            <div className="flex flex-1 flex-col lg:hidden">
-              <Tabs
-                value={mobileTab}
-                onValueChange={(v) => setMobileTab(v as "write" | "preview")}
-                className="flex flex-1 flex-col"
-              >
-                <TabsList className="w-full rounded-none border-b">
-                  <TabsTrigger value="write" className="flex-1">
-                    <Edit3 className="mr-2 h-4 w-4" />
-                    Write
-                  </TabsTrigger>
-                  <TabsTrigger value="preview" className="flex-1">
-                    <Eye className="mr-2 h-4 w-4" />
-                    Preview
-                  </TabsTrigger>
-                </TabsList>
-                <TabsContent value="write" className="flex-1 mt-0 data-[state=inactive]:hidden">
-                  <div className="flex h-full flex-col">
-                    <MarkdownToolbar
-                      textareaRef={textareaRef}
-                      onInsert={handleInsert}
-                      onWrap={handleWrap}
-                      disabled={isFormLocked}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="content"
-                      render={({ field }) => (
-                        <Textarea
-                          {...field}
-                          ref={textareaRef}
-                          value={field.value ?? ""}
-                          placeholder="Write your story..."
-                          className="flex-1 resize-none rounded-none border-0 font-mono text-base leading-relaxed shadow-none focus-visible:ring-0 p-4"
-                          disabled={isFormLocked}
-                        />
-                      )}
-                    />
-                  </div>
-                </TabsContent>
-                <TabsContent value="preview" className="flex-1 mt-0 data-[state=inactive]:hidden">
-                  <MarkdownPreview content={watchedContent ?? ""} className="h-full" />
-                </TabsContent>
-              </Tabs>
             </div>
 
-            {/* Desktop Split View - Full Width */}
-            <div className="hidden flex-1 lg:grid lg:grid-cols-2">
-              {/* Write Pane */}
-              <div className="flex flex-col border-r overflow-hidden">
-                <MarkdownToolbar
-                  textareaRef={textareaRef}
-                  onInsert={handleInsert}
-                  onWrap={handleWrap}
-                  disabled={isFormLocked}
-                />
-                <FormField
-                  control={form.control}
-                  name="content"
-                  render={({ field }) => (
-                    <Textarea
-                      {...field}
-                      ref={textareaRef}
-                      value={field.value ?? ""}
-                      placeholder="Write your story..."
-                      className="flex-1 resize-none rounded-none border-0 font-mono text-base leading-relaxed shadow-none focus-visible:ring-0 p-4"
-                      disabled={isFormLocked}
-                    />
-                  )}
-                />
+            {/* Preview Pane */}
+            <div className="flex flex-col overflow-hidden bg-muted/20">
+              <div className="flex h-10 items-center border-b bg-muted/30 px-4 shrink-0">
+                <Eye className="mr-2 h-4 w-4 text-muted-foreground" />
+                <span className="text-sm font-medium text-muted-foreground">
+                  Preview
+                </span>
               </div>
-
-              {/* Preview Pane */}
-              <div className="flex flex-col overflow-hidden bg-muted/20">
-                <div className="flex h-10 items-center border-b bg-muted/30 px-4 shrink-0">
-                  <Eye className="mr-2 h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-muted-foreground">
-                    Preview
-                  </span>
-                </div>
-                <div className="flex-1 overflow-auto">
-                  <MarkdownPreview content={watchedContent ?? ""} />
-                </div>
+              <div className="flex-1 overflow-auto">
+                <MarkdownPreview content={watchedContent ?? ""} />
               </div>
             </div>
           </div>
-        </form>
-      </Form>
+        </div>
 
-      {/* Settings Sheet */}
-      <PostSettingsSheet
-        open={showSettings}
-        onOpenChange={setShowSettings}
-        form={form}
-        post={post}
-        isNewPost={isNewPost}
-        isFormLocked={isFormLocked}
-        tagOptions={tagOptions}
-        onTagCreated={handleTagCreated}
-        selectedAsset={selectedAsset}
-        selectedPhotoId={selectedPhotoId}
-        onPhotoSelect={handlePhotoSelect}
-        onClearCover={handleClearCover}
-        slugChecking={slugChecking}
-        slugAvailable={slugAvailable}
-        onSlugCheck={checkSlugAvailability}
-        translations={translations}
-      />
+        {/* Settings Sheet - Inside Form for context */}
+        <PostSettingsSheet
+          open={showSettings}
+          onOpenChange={setShowSettings}
+          form={form}
+          post={post}
+          isNewPost={isNewPost}
+          isFormLocked={isFormLocked}
+          tagOptions={tagOptions}
+          onTagCreated={handleTagCreated}
+          selectedAsset={selectedAsset}
+          selectedPhotoId={selectedPhotoId}
+          onPhotoSelect={handlePhotoSelect}
+          onClearCover={handleClearCover}
+          slugChecking={slugChecking}
+          slugAvailable={slugAvailable}
+          onSlugCheck={checkSlugAvailability}
+          translations={translations}
+        />
 
-      {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Delete post?</DialogTitle>
-            <DialogDescription>
-              This action cannot be undone. The post &ldquo;{post?.title}&rdquo;
-              will be permanently deleted.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-              disabled={isDeleting}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="destructive"
-              onClick={handleDelete}
-              disabled={isDeleting}
-            >
-              {isDeleting ? "Deleting..." : "Delete"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </>
+        {/* Delete Confirmation Dialog - Inside Form for context */}
+        <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete post?</DialogTitle>
+              <DialogDescription>
+                This action cannot be undone. The post &ldquo;{post?.title}&rdquo;
+                will be permanently deleted.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowDeleteDialog(false)}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                onClick={handleDelete}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Deleting..." : "Delete"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </form>
+    </Form>
   );
 }
 

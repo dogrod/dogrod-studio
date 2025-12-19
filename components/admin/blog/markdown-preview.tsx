@@ -27,7 +27,13 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
 
   return (
     <ScrollArea className={cn("h-full", className)}>
+      {/* 
+        suppressHydrationWarning is needed because react-markdown adds attributes
+        like className="language-*" and tabindex="0" to code blocks that can
+        differ between server and client rendering.
+      */}
       <article
+        suppressHydrationWarning
         className={cn(
           // Base prose styling
           "prose prose-lg dark:prose-invert max-w-none",
@@ -56,6 +62,17 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
+            // Custom pre/code handling to suppress hydration warnings on nested elements
+            pre: ({ children, ...props }) => (
+              <pre suppressHydrationWarning {...props}>
+                {children}
+              </pre>
+            ),
+            code: ({ children, ...props }) => (
+              <code suppressHydrationWarning {...props}>
+                {children}
+              </code>
+            ),
             // Custom link handling to open in new tab
             a: ({ href, children, ...props }) => (
               <a
