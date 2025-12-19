@@ -107,12 +107,13 @@ export function TranslationsSidebar({
                 {translation.status}
               </span>
             </div>
-            <Button variant="ghost" size="sm" asChild>
-              <Link href={`/admin/blog/${translation.id}`}>
-                <ExternalLink className="mr-1 h-3 w-3" />
-                Edit
-              </Link>
-            </Button>
+            <Link
+              href={`/admin/blog/${translation.id}`}
+              className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium text-primary hover:bg-muted"
+            >
+              <ExternalLink className="h-3 w-3" />
+              Edit
+            </Link>
           </div>
         ))}
 

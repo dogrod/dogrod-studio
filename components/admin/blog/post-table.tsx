@@ -80,7 +80,7 @@ export function PostTable({ posts }: PostTableProps) {
                 </div>
               </TableCell>
               <TableCell>
-                <Badge variant="outline" className="text-xs">
+                <Badge variant="outline" className="whitespace-nowrap text-xs">
                   {LANGUAGE_LABELS[post.language]}
                 </Badge>
               </TableCell>
