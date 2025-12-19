@@ -164,3 +164,36 @@ types/
 ### New Component Consideration
 - Markdown editor: Will create a simple `<Textarea>` wrapper with preview toggle
 - No external markdown editor library needed for MVP
+
+---
+
+## 6. Multi-language Support (i18n) - Added 2024-12-18
+
+### Database Fields Added
+- `language` ('zh-CN' | 'en-US') - Post language
+- `translation_group_id` (UUID) - Groups translations together
+
+### Implementation
+
+#### New Components
+- `components/admin/blog/translations-sidebar.tsx` - Sidebar widget showing translation status and actions
+
+#### Updated Files
+- `types/posts.ts` - Added `PostLanguage`, `TranslationLink` types
+- `lib/data/posts.ts` - Added `fetchTranslations()`, `getExistingLanguages()`
+- `app/admin/(protected)/blog/[post-id]/actions.ts` - Added `createTranslationAction()`
+- `components/admin/blog/post-editor-form.tsx` - Added language selector, translation_group_id handling
+- `components/admin/blog/post-table.tsx` - Added language column
+- `app/admin/(protected)/blog/[post-id]/page.tsx` - Added translations sidebar
+
+### UX Flow
+1. **Creating a New Post**:
+   - `translation_group_id` auto-generates a new UUID
+   - Default `language`: 'zh-CN'
+   - Language selector available (cannot be changed after creation)
+
+2. **Translation Management (In Edit Page)**:
+   - Translations sidebar shows current language and other translations
+   - "Add English" or "Add 中文" button creates new translation
+   - Translation copies: `translation_group_id`, `cover_asset_id`, `gallery_photo_id`, tags
+   - Redirects to new translation editor after creation

@@ -18,6 +18,8 @@ const createPostSchema = z.object({
   galleryPhotoId: z.string().uuid().nullable(),
   status: z.enum(["draft", "published", "archived"]),
   visibility: z.enum(["public", "unlisted", "private"]),
+  language: z.enum(["zh-CN", "en-US"]),
+  translationGroupId: z.string().uuid(),
   tagIds: z.array(z.string().uuid()),
 });
 
@@ -47,6 +49,8 @@ export async function createPostAction(input: CreatePostInput) {
       gallery_photo_id: payload.galleryPhotoId,
       status: payload.status,
       visibility: payload.visibility,
+      language: payload.language,
+      translation_group_id: payload.translationGroupId,
       published_at: publishedAt,
       created_by: user.id,
       updated_by: user.id,
@@ -229,4 +233,106 @@ export async function checkSlugAction(input: CheckSlugInput) {
   const available = await isSlugAvailable(payload.slug, payload.excludePostId);
 
   return { available };
+}
+
+const createTranslationSchema = z.object({
+  sourcePostId: z.string().uuid(),
+  targetLanguage: z.enum(["zh-CN", "en-US"]),
+});
+
+export type CreateTranslationInput = z.infer<typeof createTranslationSchema>;
+
+/**
+ * Create a new translation for an existing post.
+ * Copies the translation_group_id, cover_asset_id, gallery_photo_id, and tags.
+ */
+export async function createTranslationAction(input: CreateTranslationInput) {
+  const payload = createTranslationSchema.parse(input);
+  const user = await requireUser();
+  const supabase = createSupabaseServiceRoleClient();
+
+  // Fetch source post
+  const { data: sourcePost, error: fetchError } = await supabase
+    .from("posts")
+    .select("*, post_tag(tag_id)")
+    .eq("id", payload.sourcePostId)
+    .single();
+
+  if (fetchError || !sourcePost) {
+    throw new Error("Source post not found");
+  }
+
+  // Check if translation already exists for this language
+  const { data: existingTranslation } = await supabase
+    .from("posts")
+    .select("id")
+    .eq("translation_group_id", sourcePost.translation_group_id)
+    .eq("language", payload.targetLanguage)
+    .maybeSingle();
+
+  if (existingTranslation) {
+    throw new Error(`A ${payload.targetLanguage} translation already exists for this post.`);
+  }
+
+  // Generate a default slug based on source slug + language suffix
+  const baseSlug = sourcePost.slug.replace(/-zh$|-en$/, "");
+  const langSuffix = payload.targetLanguage === "en-US" ? "-en" : "-zh";
+  let newSlug = `${baseSlug}${langSuffix}`;
+
+  // Check if slug is available, if not add a number
+  let slugAvailable = await isSlugAvailable(newSlug);
+  let counter = 1;
+  while (!slugAvailable && counter < 100) {
+    newSlug = `${baseSlug}${langSuffix}-${counter}`;
+    slugAvailable = await isSlugAvailable(newSlug);
+    counter++;
+  }
+
+  // Create the translation post
+  const { data: newPost, error: createError } = await supabase
+    .from("posts")
+    .insert({
+      title: `[${payload.targetLanguage}] ${sourcePost.title}`,
+      slug: newSlug,
+      excerpt: null,
+      content: null,
+      cover_asset_id: sourcePost.cover_asset_id,
+      gallery_photo_id: sourcePost.gallery_photo_id,
+      status: "draft",
+      visibility: sourcePost.visibility,
+      language: payload.targetLanguage,
+      translation_group_id: sourcePost.translation_group_id,
+      published_at: null,
+      created_by: user.id,
+      updated_by: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (createError) {
+    throw createError;
+  }
+
+  // Copy tags from source post
+  const sourceTags = sourcePost.post_tag as Array<{ tag_id: string }> | null;
+  if (sourceTags && sourceTags.length > 0) {
+    const tagRows = sourceTags.map((tag) => ({
+      post_id: newPost.id,
+      tag_id: tag.tag_id,
+      created_by: user.id,
+      updated_by: user.id,
+    }));
+
+    const { error: tagError } = await supabase.from("post_tag").insert(tagRows);
+
+    if (tagError) {
+      console.error("Failed to copy tags:", tagError);
+      // Don't throw - tags are optional
+    }
+  }
+
+  revalidatePath("/admin/blog");
+  revalidatePath(`/admin/blog/${payload.sourcePostId}`);
+
+  return { success: true, postId: newPost.id };
 }

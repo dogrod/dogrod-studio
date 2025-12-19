@@ -43,7 +43,7 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/hooks/use-toast";
-import type { PostDetail, PhotoPickerItem } from "@/types/posts";
+import type { PostDetail, PhotoPickerItem, PostLanguage } from "@/types/posts";
 import type { AssetWithRenditions, Tag } from "@/types/photos";
 
 const slugRegex = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
@@ -57,10 +57,16 @@ const formSchema = z.object({
   galleryPhotoId: z.string().uuid().nullable(),
   status: z.enum(["draft", "published", "archived"]),
   visibility: z.enum(["public", "unlisted", "private"]),
+  language: z.enum(["zh-CN", "en-US"]),
   tagIds: z.array(z.string()),
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
+// Generate a UUID v4
+function generateUUID(): string {
+  return crypto.randomUUID();
+}
 
 interface PostEditorFormProps {
   /** Existing post for editing, or null for new post */
@@ -68,6 +74,11 @@ interface PostEditorFormProps {
   /** All available tags */
   allTags: Tag[];
 }
+
+const LANGUAGE_LABELS: Record<PostLanguage, string> = {
+  "zh-CN": "中文 (Chinese)",
+  "en-US": "English",
+};
 
 export function PostEditorForm({ post, allTags }: PostEditorFormProps) {
   const router = useRouter();
@@ -83,6 +94,11 @@ export function PostEditorForm({ post, allTags }: PostEditorFormProps) {
   const [slugChecking, setSlugChecking] = useState(false);
   const [slugAvailable, setSlugAvailable] = useState<boolean | null>(null);
 
+  // For new posts, generate a translation_group_id once
+  const [translationGroupId] = useState<string>(() => 
+    post?.translation_group_id ?? generateUUID()
+  );
+
   const isFormLocked = isPending || isDeleting;
   const isNewPost = !post;
 
@@ -96,6 +112,7 @@ export function PostEditorForm({ post, allTags }: PostEditorFormProps) {
       galleryPhotoId: post?.gallery_photo_id ?? null,
       status: post?.status ?? "draft",
       visibility: post?.visibility ?? "public",
+      language: post?.language ?? "zh-CN",
       tagIds: post?.tags.map((tag) => tag.id) ?? [],
     }),
     [post]
@@ -186,6 +203,8 @@ export function PostEditorForm({ post, allTags }: PostEditorFormProps) {
             galleryPhotoId: values.galleryPhotoId,
             status: values.status,
             visibility: values.visibility,
+            language: values.language,
+            translationGroupId: translationGroupId,
             tagIds: values.tagIds,
           });
 
@@ -384,7 +403,38 @@ export function PostEditorForm({ post, allTags }: PostEditorFormProps) {
               Publishing
             </legend>
 
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
+              <FormField
+                control={form.control}
+                name="language"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Language</FormLabel>
+                    <Select
+                      onValueChange={field.onChange}
+                      value={field.value}
+                      disabled={isFormLocked || !isNewPost}
+                    >
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="zh-CN">{LANGUAGE_LABELS["zh-CN"]}</SelectItem>
+                        <SelectItem value="en-US">{LANGUAGE_LABELS["en-US"]}</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {!isNewPost && (
+                      <FormDescription>
+                        Language cannot be changed after creation.
+                      </FormDescription>
+                    )}
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <FormField
                 control={form.control}
                 name="status"

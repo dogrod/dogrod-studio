@@ -5,6 +5,8 @@ import type {
   PostDetail,
   ContentStatus,
   PhotoPickerItem,
+  TranslationLink,
+  PostLanguage,
 } from "@/types/posts";
 import type { AssetRendition, AssetWithRenditions, Tag } from "@/types/photos";
 
@@ -278,4 +280,58 @@ export async function isSlugAvailable(
   }
 
   return data === null;
+}
+
+/**
+ * Fetch all translations for a given translation group.
+ * Returns posts in the same translation group, excluding the current post.
+ */
+export async function fetchTranslations(
+  translationGroupId: string,
+  excludePostId?: string
+): Promise<TranslationLink[]> {
+  const supabase = createSupabaseServiceRoleClient();
+
+  let query = supabase
+    .from("posts")
+    .select("id, language, title, status")
+    .eq("translation_group_id", translationGroupId)
+    .order("language", { ascending: true });
+
+  if (excludePostId) {
+    query = query.neq("id", excludePostId);
+  }
+
+  const { data, error } = await query;
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    language: row.language as PostLanguage,
+    title: row.title as string,
+    status: row.status as ContentStatus,
+  }));
+}
+
+/**
+ * Get all languages that exist for a translation group.
+ */
+export async function getExistingLanguages(
+  translationGroupId: string
+): Promise<PostLanguage[]> {
+  const supabase = createSupabaseServiceRoleClient();
+
+  const { data, error } = await supabase
+    .from("posts")
+    .select("language")
+    .eq("translation_group_id", translationGroupId);
+
+  if (error) {
+    throw error;
+  }
+
+  return (data ?? []).map((row) => row.language as PostLanguage);
 }

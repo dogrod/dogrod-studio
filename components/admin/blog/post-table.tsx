@@ -13,11 +13,16 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import type { PostListItem } from "@/types/posts";
+import type { PostListItem, PostLanguage } from "@/types/posts";
 
 interface PostTableProps {
   posts: PostListItem[];
 }
+
+const LANGUAGE_LABELS: Record<PostLanguage, string> = {
+  "zh-CN": "中文",
+  "en-US": "EN",
+};
 
 export function PostTable({ posts }: PostTableProps) {
   if (posts.length === 0) {
@@ -34,6 +39,7 @@ export function PostTable({ posts }: PostTableProps) {
         <TableRow>
           <TableHead className="w-[80px]">Cover</TableHead>
           <TableHead>Title</TableHead>
+          <TableHead className="w-[60px]">Lang</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Published</TableHead>
           <TableHead>Created</TableHead>
@@ -72,6 +78,11 @@ export function PostTable({ posts }: PostTableProps) {
                     /{post.slug}
                   </span>
                 </div>
+              </TableCell>
+              <TableCell>
+                <Badge variant="outline" className="text-xs">
+                  {LANGUAGE_LABELS[post.language]}
+                </Badge>
               </TableCell>
               <TableCell>
                 <Badge variant={getStatusVariant(post.status)} className="capitalize">

@@ -2,6 +2,7 @@ import type { AssetRendition, AssetWithRenditions, Tag } from "./photos";
 
 export type ContentStatus = "draft" | "published" | "archived";
 export type Visibility = "public" | "unlisted" | "private";
+export type PostLanguage = "zh-CN" | "en-US";
 
 export interface Post {
   id: string;
@@ -14,10 +15,22 @@ export interface Post {
   status: ContentStatus;
   published_at: string | null;
   visibility: Visibility;
+  language: PostLanguage;
+  translation_group_id: string;
   created_at: string;
   updated_at: string;
   created_by: string | null;
   updated_by: string | null;
+}
+
+/**
+ * Translation link for sidebar display.
+ */
+export interface TranslationLink {
+  id: string;
+  language: PostLanguage;
+  title: string;
+  status: ContentStatus;
 }
 
 /**
