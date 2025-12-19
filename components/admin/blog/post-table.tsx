@@ -39,7 +39,7 @@ export function PostTable({ posts }: PostTableProps) {
         <TableRow>
           <TableHead className="w-[80px]">Cover</TableHead>
           <TableHead>Title</TableHead>
-          <TableHead className="w-[60px]">Lang</TableHead>
+          <TableHead className="w-[70px]">Lang</TableHead>
           <TableHead>Status</TableHead>
           <TableHead>Published</TableHead>
           <TableHead>Created</TableHead>
@@ -79,10 +79,8 @@ export function PostTable({ posts }: PostTableProps) {
                   </span>
                 </div>
               </TableCell>
-              <TableCell>
-                <Badge variant="outline" className="whitespace-nowrap text-xs">
-                  {LANGUAGE_LABELS[post.language]}
-                </Badge>
+              <TableCell className="whitespace-nowrap">
+                <Badge variant="outline">{LANGUAGE_LABELS[post.language]}</Badge>
               </TableCell>
               <TableCell>
                 <Badge variant={getStatusVariant(post.status)} className="capitalize">
