@@ -48,10 +48,11 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
           "prose-p:leading-relaxed",
           // Links
           "prose-a:text-primary prose-a:no-underline hover:prose-a:underline",
-          // Inline code styling (block code handled by SyntaxHighlighter)
-          "prose-code:rounded prose-code:bg-muted prose-code:px-1.5 prose-code:py-0.5 prose-code:font-mono prose-code:text-sm",
-          // Pre blocks without syntax highlighting fallback
-          "prose-pre:bg-transparent prose-pre:p-0",
+          // Inline code styling only (block code handled by SyntaxHighlighter)
+          "[&_:not(pre)>code]:rounded [&_:not(pre)>code]:bg-muted [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-sm",
+          // Reset pre/code block styles to let SyntaxHighlighter handle it
+          "prose-pre:bg-transparent prose-pre:p-0 prose-pre:m-0",
+          "[&_pre]:!bg-transparent [&_pre_code]:!bg-transparent",
           // Blockquotes
           "prose-blockquote:border-l-primary prose-blockquote:not-italic",
           // Images - matches frontend styling
@@ -79,9 +80,16 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                     language={match[1]}
                     PreTag="div"
                     customStyle={{
-                      margin: 0,
+                      margin: "1rem 0",
+                      padding: "1rem",
                       borderRadius: "0.5rem",
                       fontSize: "0.875rem",
+                      background: "#1e1e1e",
+                    }}
+                    codeTagProps={{
+                      style: {
+                        background: "transparent",
+                      },
                     }}
                   >
                     {codeContent}
@@ -99,9 +107,16 @@ export function MarkdownPreview({ content, className }: MarkdownPreviewProps) {
                     language="text"
                     PreTag="div"
                     customStyle={{
-                      margin: 0,
+                      margin: "1rem 0",
+                      padding: "1rem",
                       borderRadius: "0.5rem",
                       fontSize: "0.875rem",
+                      background: "#1e1e1e",
+                    }}
+                    codeTagProps={{
+                      style: {
+                        background: "transparent",
+                      },
                     }}
                   >
                     {codeContent}
