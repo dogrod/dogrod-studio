@@ -19,6 +19,17 @@ export default function AdminPage() {
             href="/admin/gallery"
             externalLinks={[{ label: "Visit", url: "https://dogrod.com/gallery" }]}
           />
+          <AppCard
+            title="Blog"
+            icon="file-text"
+            href="/admin/blog"
+            externalLinks={[{ label: "Visit", url: "https://dogrod.com/blog" }]}
+          />
+          <AppCard
+            title="Tags"
+            icon="tags"
+            href="/admin/tags"
+          />
         </div>
       </section>
     </div>
